@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NotesAI</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+  <!-- ── Modal overlay ────────────────────────────────────── -->
+  <div id="modal-overlay" class="hidden" role="dialog" aria-modal="true">
+
+    <!-- Onboarding unificado -->
+    <div id="modal-onboarding" class="modal hidden">
+      <p class="modal-title">✨ Saudações do NotesAI!</p>
+      <p class="modal-desc">Configure em dois passos rápidos.</p>
+
+      <div class="onboarding-steps">
+        <div class="step-dot active" data-step="1"><span>1</span></div>
+        <div class="step-line"></div>
+        <div class="step-dot" data-step="2"><span>2</span></div>
+      </div>
+
+      <div id="onboarding-step-1">
+        <p class="step-label">Passo 1 — Chave Groq</p>
+        <p class="modal-desc" style="margin-bottom:12px;">
+          Necessária para transcrição e refinamento de notas com IA.<br>
+          <a href="https://console.groq.com/keys" target="_blank" rel="noopener" class="modal-link">
+            Obter chave gratuita em console.groq.com/keys →
+          </a>
+        </p>
+        <div class="field-group">
+          <label class="field-label" for="input-groq-key">Chave API</label>
+          <input id="input-groq-key" class="field-input" type="password"
+                 placeholder="gsk_..." autocomplete="off" spellcheck="false">
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" id="btn-onboarding-skip-groq">Configurar depois</button>
+          <button class="btn btn-primary" id="btn-onboarding-next">Próximo →</button>
+        </div>
+      </div>
+
+      <div id="onboarding-step-2" class="hidden">
+        <p class="step-label">Passo 2 — Pasta das notas</p>
+        <p class="modal-desc" style="margin-bottom:16px;">
+          Escolha a pasta onde suas reuniões serão salvas.<br>
+          O NotesAI lê e grava arquivos <strong>.md</strong> diretamente nessa pasta.
+        </p>
+        <div class="modal-actions" style="justify-content:center;">
+          <button class="btn btn-primary" id="btn-select-folder">📁&nbsp; Selecionar pasta</button>
+        </div>
+      </div>
+
+      <p class="onboarding-notice">
+        Nas próximas vezes que o app for carregado, esses passos não serão necessários.
+      </p>
+    </div>
+
+    <!-- Re-auth (permissão de pasta expirou) -->
+    <div id="modal-reauth" class="modal hidden">
+      <p class="modal-title">Autorizar pasta</p>
+      <p class="modal-desc">
+        Autorize o NotesAI a acessar a pasta <strong id="reauth-folder-name"></strong> novamente
+        para continuar salvando suas notas.
+      </p>
+      <div class="modal-actions">
+        <button class="btn btn-primary" id="btn-reauth-folder">📁&nbsp; Autorizar pasta</button>
+      </div>
+    </div>
+
+    <!-- Nova pasta -->
+    <div id="modal-new-folder" class="modal hidden">
+      <p class="modal-title">Nova pasta</p>
+      <div class="field-group">
+        <label class="field-label" for="input-folder-name">Nome</label>
+        <input id="input-folder-name" class="field-input" type="text"
+               placeholder="Ex.: Projetos" maxlength="100">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Cor</label>
+        <div class="color-picker" id="folder-color-picker">
+          <div class="color-swatch selected" data-color="#6b7280" style="background:#6b7280"></div>
+          <div class="color-swatch" data-color="#ef4444" style="background:#ef4444"></div>
+          <div class="color-swatch" data-color="#f97316" style="background:#f97316"></div>
+          <div class="color-swatch" data-color="#eab308" style="background:#eab308"></div>
+          <div class="color-swatch" data-color="#22c55e" style="background:#22c55e"></div>
+          <div class="color-swatch" data-color="#3b82f6" style="background:#3b82f6"></div>
+          <div class="color-swatch" data-color="#a855f7" style="background:#a855f7"></div>
+          <div class="color-swatch" data-color="#ec4899" style="background:#ec4899"></div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="btn-new-folder-cancel">Cancelar</button>
+        <button class="btn btn-primary" id="btn-new-folder-confirm">Criar pasta</button>
+      </div>
+    </div>
+
+    <!-- Confirmação genérica -->
+    <div id="modal-confirm" class="modal hidden">
+      <p class="modal-title" id="modal-confirm-title">Confirmar ação</p>
+      <p class="modal-desc"  id="modal-confirm-desc"></p>
+      <div class="modal-actions">
+        <button class="btn btn-ghost"  id="btn-confirm-cancel">Cancelar</button>
+        <button class="btn btn-danger" id="btn-confirm-ok">Confirmar</button>
+      </div>
+    </div>
+
+  </div><!-- /modal-overlay -->
+
+
+  <!-- ── App ──────────────────────────────────────────────── -->
+  <div id="app">
+
+    <!-- Barra de abas -->
+    <header id="tabs-bar" role="tablist" aria-label="Reuniões abertas">
+      <div id="tabs-logo" aria-label="NotesAI">NotesAI</div>
+      <div id="tabs-list"></div>
+      <button id="btn-new-tab" class="btn-accent-icon" title="Nova reunião" aria-label="Nova reunião">+</button>
+      <button id="btn-theme-toggle" aria-label="Alternar tema" title="Alternar tema claro/escuro">
+        <span id="theme-icon">☀️</span>
+      </button>
+    </header>
+
+    <!-- Body -->
+    <div id="app-body">
+
+      <!-- Sidebar -->
+      <aside id="sidebar" aria-label="Diretório de reuniões">
+        <div id="sidebar-header">
+          <button id="btn-new-folder" class="btn-sidebar-action">+ Nova pasta</button>
+        </div>
+        <div id="directory-tree" role="tree"></div>
+        <div id="sidebar-resize-handle" aria-hidden="true"></div>
+      </aside>
+
+      <!-- Área principal -->
+      <main id="main-area">
+
+        <!-- Cabeçalho da reunião -->
+        <div id="meeting-header" class="hidden">
+          <div class="meeting-title-row">
+            <input id="meeting-name-input" type="text"
+                   placeholder="Nome da reunião"
+                   aria-label="Nome da reunião"
+                   spellcheck="true">
+            <span id="meeting-date-display"></span>
+          </div>
+          <div class="meeting-objective-row">
+            <label for="meeting-objective-input">Objetivo</label>
+            <input id="meeting-objective-input" type="text"
+                   placeholder="Qual é o objetivo desta reunião?"
+                   aria-label="Objetivo da reunião"
+                   spellcheck="true">
+          </div>
+        </div>
+
+        <!-- Editor -->
+        <div id="editor-wrap" class="hidden" aria-label="Editor de notas">
+          <div id="editor"></div>
+        </div>
+
+        <!-- Empty state -->
+        <div id="empty-state">
+          <p>Nenhuma reunião aberta</p>
+          <button class="btn btn-primary" id="btn-new-meeting-empty">Nova reunião</button>
+        </div>
+
+        <!-- Barra inferior -->
+        <footer id="bottom-bar" class="hidden">
+          <div id="status-area">
+            <div id="transcription-indicator" class="hidden">
+              <span class="pulse-dot"></span>
+              <span>Transcrevendo...</span>
+            </div>
+            <span id="autosave-indicator">Salvo</span>
+          </div>
+          <button id="btn-finish-notes" class="btn btn-primary" disabled
+                  title="Preencha o objetivo da reunião para finalizar">
+            Finalizar notas
+          </button>
+        </footer>
+
+      </main>
+
+    </div><!-- /app-body -->
+  </div><!-- /app -->
+
+  <!-- Tooltip atalho de abas -->
+  <div id="tabs-tooltip" class="hidden" role="tooltip">
+    Use <kbd>Alt+PageDown</kbd> e <kbd>Alt+PageUp</kbd> para navegar entre abas.
+  </div>
+
+  <script src="bundle.js"></script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+# Build tooling dependencies
+_build/node_modules/
+
+# Claude Code local config
+.claude/
+
+# Internal project docs (not for public repo)
+CLAUDE.md
+PRD.md
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor directories
+.vscode/
+.idea/
