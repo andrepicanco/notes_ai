@@ -4,21 +4,23 @@ import {
 } from './tabs.js';
 import {
   initStorage, requestRootFolder, restoreRootFolder, hasRootFolder, getRootHandle,
-  writeFile, readFile, deleteFile, fileExists, renameFile, deleteDirectory, renameFolder,
-  moveFolderIntoFolder, buildFilename, buildDefaultFilename,
+  writeFile, readFile, deleteFile, fileExists, renameFile,
+  deleteDirectory, renameFolder, moveFolderIntoFolder, moveFolderBetweenDirs,
+  buildFilename, buildDefaultFilename,
   resolveUniqueFilename, listDirectory, createDirectory, setFolderColor,
   loadConfig, saveConfig, idbSave, idbLoad, getRootFolderName,
 } from './storage.js';
-import { initEditor, focusEditor, setContent, getMarkdown, clearEditor } from './editor.js';
+import { initEditor, focusEditor, focusAtCoords, setContent, getMarkdown, clearEditor } from './editor.js';
 import { saveGroqKey, getGroqKey, hasGroqKey } from './groq.js';
 
 // ── App state ──────────────────────────────────────────────
 const meetings         = new Map();
 const lastSavedContent = new Map();
-let autoSaveTimer    = null;
-let renameDebounce   = null;
-let contextItem      = null;  // { kind, name, folder, relativePath, handle, parentHandle, depth }
-let createSubfolderIn = null; // folder handle when creating subfolder from context menu
+let autoSaveTimer     = null;
+let renameDebounce    = null;
+let contextItem       = null;
+let createSubfolderIn = null;
+let currentDragData   = null;   // set during dragstart, cleared on dragend/drop
 
 // ── Init ───────────────────────────────────────────────────
 
@@ -37,12 +39,11 @@ async function init() {
   setupSidebarResize();
   setupEditorWrapClick();
 
-  const setupDone = localStorage.getItem('notesai-setup-done');
+  // Clear drag state on any dragend/drop anywhere
+  document.addEventListener('dragend', () => { currentDragData = null; });
 
-  if (!setupDone) {
-    showModal('onboarding');
-    return;
-  }
+  const setupDone = localStorage.getItem('notesai-setup-done');
+  if (!setupDone) { showModal('onboarding'); return; }
 
   const restored = await restoreRootFolder();
   if (!restored) {
@@ -58,12 +59,9 @@ async function init() {
   }
 }
 
-// ── Post-setup ─────────────────────────────────────────────
-
 async function afterFolderSelected() {
   await refreshDirectoryTree();
-  const didRestore = await restoreTabState();
-  if (!didRestore) { /* empty state shown by default */ }
+  await restoreTabState();
 }
 
 // ── Theme ──────────────────────────────────────────────────
@@ -95,7 +93,7 @@ function hideModal() {
 }
 
 function setupModals() {
-  // ── Onboarding: step 1
+  // ── Onboarding step 1
   const goToStep2 = () => {
     const key = document.getElementById('input-groq-key').value.trim();
     if (key) saveGroqKey(key);
@@ -108,7 +106,7 @@ function setupModals() {
   document.getElementById('btn-onboarding-skip-groq').addEventListener('click', goToStep2);
   document.getElementById('input-groq-key').addEventListener('keydown', e => { if (e.key === 'Enter') goToStep2(); });
 
-  // ── Onboarding: step 2
+  // ── Onboarding step 2
   document.getElementById('btn-select-folder').addEventListener('click', async () => {
     const handle = await requestRootFolder();
     if (handle) { hideModal(); await afterFolderSelected(); }
@@ -122,15 +120,14 @@ function setupModals() {
 
   // ── New folder / subfolder
   document.getElementById('btn-new-folder-cancel').addEventListener('click', () => {
-    createSubfolderIn = null;
-    hideModal();
+    createSubfolderIn = null; hideModal();
   });
   document.getElementById('btn-new-folder-confirm').addEventListener('click', handleCreateFolder);
   document.getElementById('input-folder-name').addEventListener('keydown', e => {
     if (e.key === 'Enter') handleCreateFolder();
   });
 
-  // ── Item actions modal (⁝ menu)
+  // ── Item actions (⁝ menu)
   document.getElementById('btn-item-actions-cancel').addEventListener('click', () => {
     contextItem = null; hideModal();
   });
@@ -144,8 +141,8 @@ function setupModals() {
     document.getElementById('input-rename-value').value = current;
     showModal('rename-item');
     setTimeout(() => {
-      const input = document.getElementById('input-rename-value');
-      input.focus(); input.select();
+      const inp = document.getElementById('input-rename-value');
+      inp.focus(); inp.select();
     }, 100);
   });
   document.getElementById('btn-action-subfolder').addEventListener('click', () => {
@@ -159,8 +156,8 @@ function setupModals() {
   });
   document.getElementById('btn-action-delete').addEventListener('click', () => {
     if (!contextItem) return;
-    const isFile   = contextItem.kind === 'file';
-    const label    = isFile ? `"${contextItem.filename}"` : `a pasta "${contextItem.name}" e todo o seu conteúdo`;
+    const isFile = contextItem.kind === 'file';
+    const label  = isFile ? `"${contextItem.filename}"` : `a pasta "${contextItem.name}" e todo o seu conteúdo`;
     document.getElementById('modal-confirm-title').textContent = isFile ? 'Excluir arquivo' : 'Excluir pasta';
     document.getElementById('modal-confirm-desc').textContent  = `Deseja excluir ${label}? Esta ação não pode ser desfeita.`;
     const okBtn = document.getElementById('btn-confirm-ok');
@@ -188,7 +185,7 @@ function setupModals() {
   // ── Generic confirm cancel
   document.getElementById('btn-confirm-cancel').addEventListener('click', hideModal);
 
-  // ── Shortcuts modal
+  // ── Shortcuts
   document.getElementById('btn-shortcuts-close').addEventListener('click', hideModal);
   document.getElementById('btn-shortcuts-help').addEventListener('click', () => showModal('shortcuts'));
 }
@@ -254,7 +251,6 @@ async function createMeeting(folderPath = null) {
   setTimeout(() => focusEditor(), 50);
   startAutoSave();
   persistTabState();
-
   return id;
 }
 
@@ -297,25 +293,24 @@ async function restoreTabState() {
     for (const s of saved) {
       if (!s.filename) continue;
       try {
-        const content = await readFile(s.filename);
-        const id      = `meeting-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-        const nameLine = content.split('\n').find(l => l.startsWith('# '));
-        const name     = nameLine ? nameLine.slice(2).trim() : (s.name || s.filename);
-        const objLine  = content.split('\n').find(l => l.startsWith('**Objetivo:**'));
+        const content   = await readFile(s.filename);
+        const id        = `meeting-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+        const nameLine  = content.split('\n').find(l => l.startsWith('# '));
+        const name      = nameLine ? nameLine.slice(2).trim() : (s.name || s.filename);
+        const objLine   = content.split('\n').find(l => l.startsWith('**Objetivo:**'));
         const objective = objLine ? objLine.replace('**Objetivo:**', '').trim() : '';
-        const parts    = s.filename.split('/');
-        const folder   = parts.length > 1 ? parts.slice(0, -1).join('/') : '';
-        const meeting  = { id, name, objective, filename: s.filename, createdAt: new Date(), folder, isDefaultName: false };
+        const parts     = s.filename.split('/');
+        const folder    = parts.length > 1 ? parts.slice(0, -1).join('/') : '';
+        const meeting   = { id, name, objective, filename: s.filename, createdAt: new Date(), folder, isDefaultName: false };
         meetings.set(id, meeting);
         lastSavedContent.set(id, content);
         addTab({ id, name });
         restoredCount++;
         if (s.filename === activeFilename) activeId = id;
-      } catch { /* file deleted externally — skip */ }
+      } catch { /* file deleted — skip */ }
     }
 
     if (restoredCount === 0) return false;
-
     const targetId = activeId || meetings.keys().next().value;
     setActiveTab(targetId);
     await handleTabSwitch(targetId);
@@ -335,7 +330,6 @@ function setupMeetingHeader() {
     const name    = nameInput.value || 'Nova reunião';
     const meeting = meetings.get(tabId);
     if (!meeting) return;
-
     meeting.name          = name;
     meeting.isDefaultName = false;
     updateTabName(tabId, name);
@@ -382,9 +376,9 @@ function scheduleRename(tabId, meeting) {
     const newRelative  = folder ? `${folder}/${newFilename}` : newFilename;
     if (newRelative === meeting.filename) return;
     try {
-      const resolved    = await resolveUniqueFilename(newRelative);
+      const resolved   = await resolveUniqueFilename(newRelative);
       await renameFile(meeting.filename, resolved);
-      meeting.filename  = resolved;
+      meeting.filename = resolved;
       lastSavedContent.delete(tabId);
       await refreshDirectoryTree();
       persistTabState();
@@ -412,7 +406,6 @@ async function saveMeeting(tabId) {
 
   const md      = getMarkdown();
   const content = buildMdContent(meeting, md);
-
   if (lastSavedContent.get(tabId) === content) return;
 
   if (hasRootFolder()) {
@@ -421,11 +414,8 @@ async function saveMeeting(tabId) {
       lastSavedContent.set(tabId, content);
       showAutosaveIndicator();
     } catch (err) {
-      if (err.name === 'NotFoundError') {
-        showFileNotFoundWarning(tabId, meeting, content);
-      } else {
-        await idbSave(tabId, { content, filename: meeting.filename });
-      }
+      if (err.name === 'NotFoundError') showFileNotFoundWarning(tabId, meeting, content);
+      else await idbSave(tabId, { content, filename: meeting.filename });
     }
   } else {
     await idbSave(tabId, { content, filename: meeting.filename });
@@ -518,13 +508,13 @@ function setupBottomBar() {
   });
 }
 
-// ── Editor wrap click → focus ──────────────────────────────
+// ── Editor wrap click → focus at cursor Y position ─────────
 
 function setupEditorWrapClick() {
   document.getElementById('editor-wrap').addEventListener('click', e => {
-    if (!e.target.closest('.ProseMirror') && getActiveTabId()) {
-      focusEditor();
-    }
+    if (e.target.closest('.ProseMirror')) return;
+    if (!getActiveTabId()) return;
+    focusAtCoords(e.clientX, e.clientY);
   });
 }
 
@@ -546,16 +536,13 @@ async function handleCreateFolder() {
   if (!name || !hasRootFolder()) { createSubfolderIn = null; hideModal(); return; }
   try {
     if (createSubfolderIn) {
-      // Count existing subfolders to enforce max 3 rule
       const existingEntries = await listDirectory(createSubfolderIn.handle);
       const subCount = existingEntries.filter(e => e.kind === 'directory').length;
       if (subCount >= 3) {
         alert('Esta pasta já contém 3 subpastas. Não é possível adicionar mais.');
         createSubfolderIn = null; hideModal(); return;
       }
-      const parentPath = createSubfolderIn.parentPath
-        ? `${createSubfolderIn.parentPath}/${createSubfolderIn.name}`
-        : createSubfolderIn.name;
+      const parentPath = createSubfolderIn.fullPath;
       await createDirectory(name, createSubfolderIn.handle);
       await setFolderColor(`${parentPath}/${name}`, getSelectedFolderColor());
     } else {
@@ -610,30 +597,63 @@ async function refreshDirectoryTree() {
     for (const entry of entries) {
       if (entry.kind === 'directory') {
         const color = cfg.folderColors?.[entry.name] || '#6b7280';
-        tree.appendChild(await createFolderElement(entry.name, color, entry.handle, cfg, activeMeeting, 0, ''));
+        tree.appendChild(await createFolderElement(
+          entry.name, color, entry.handle, cfg, activeMeeting, 0, '', getRootHandle()
+        ));
       } else {
         tree.appendChild(createFileElement(entry.name, '', activeMeeting));
       }
     }
+
+    // Root drop zone: empty area below items
+    setupRootDropZone(tree);
   } catch (err) { console.error('Directory refresh failed:', err); }
 }
 
-async function createFolderElement(name, color, handle, cfg, activeMeeting, depth, parentPath) {
+function setupRootDropZone(tree) {
+  tree.addEventListener('dragover', e => {
+    if (e.target.closest('.sidebar-item')) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    tree.classList.add('drag-over-root');
+  });
+  tree.addEventListener('dragleave', e => {
+    if (!tree.contains(e.relatedTarget)) tree.classList.remove('drag-over-root');
+  });
+  tree.addEventListener('drop', e => {
+    if (e.target.closest('.sidebar-item')) return;
+    e.preventDefault();
+    tree.classList.remove('drag-over-root');
+    if (currentDragData) handleDropToRoot(currentDragData);
+  });
+}
+
+async function createFolderElement(name, color, handle, cfg, activeMeeting, depth, parentPath, ownParentHandle) {
   const wrapper   = document.createElement('div');
   const folderRow = document.createElement('div');
-  folderRow.className       = 'sidebar-item sidebar-folder';
+  folderRow.className        = 'sidebar-item sidebar-folder';
   folderRow.style.paddingLeft = `${12 + depth * 14}px`;
-  folderRow.dataset.folder  = name;
+  folderRow.dataset.folder   = name;
 
   const toggle = document.createElement('span');
   toggle.className   = 'sidebar-toggle';
   toggle.textContent = '▾';
 
-  // Draggable handle: color dot + icon
+  // Drag handle (color dot + icon) — only for root-level folders
   const dragHandle = document.createElement('span');
   dragHandle.className = 'folder-drag-handle';
-  dragHandle.setAttribute('draggable', 'true');
-  dragHandle.title = 'Arrastar pasta';
+  if (depth === 0) {
+    dragHandle.setAttribute('draggable', 'true');
+    dragHandle.title = 'Arrastar para mover pasta';
+    dragHandle.addEventListener('dragstart', e => {
+      e.stopPropagation();
+      e.dataTransfer.effectAllowed = 'move';
+      currentDragData = { kind: 'folder', name, depth, parentPath, parentHandle: ownParentHandle };
+      e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'folder', name, depth, parentPath }));
+    });
+  } else {
+    dragHandle.style.cursor = 'default';
+  }
 
   const dot = document.createElement('span');
   dot.className        = 'folder-color-dot';
@@ -645,31 +665,20 @@ async function createFolderElement(name, color, handle, cfg, activeMeeting, dept
 
   dragHandle.append(dot, icon);
 
-  dragHandle.addEventListener('dragstart', e => {
-    e.stopPropagation();
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'folder', name, depth, parentPath }));
-  });
-
   const nameEl = document.createElement('span');
   nameEl.className   = 'sidebar-item-name';
   nameEl.textContent = name;
 
   // Context menu button
   const menuBtn = document.createElement('button');
-  menuBtn.className     = 'sidebar-item-menu';
-  menuBtn.textContent   = '⁝';
-  menuBtn.title         = 'Ações';
+  menuBtn.className   = 'sidebar-item-menu';
+  menuBtn.textContent = '⁝';
+  menuBtn.title       = 'Ações';
   menuBtn.setAttribute('aria-label', 'Ações da pasta');
   menuBtn.addEventListener('click', e => {
     e.stopPropagation();
-    const rootHandle = getRootHandle();
-    const parentHandle = depth === 0 ? rootHandle : null; // simplified: root-level only for complex ops
-    contextItem = {
-      kind: 'folder', name, handle, parentHandle: rootHandle,
-      depth, parentPath,
-      fullPath: parentPath ? `${parentPath}/${name}` : name,
-    };
+    const fullPath = parentPath ? `${parentPath}/${name}` : name;
+    contextItem = { kind: 'folder', name, handle, parentHandle: ownParentHandle || getRootHandle(), depth, parentPath, fullPath };
     document.getElementById('item-actions-title').textContent = `📁 ${name}`;
     document.getElementById('btn-action-subfolder').style.display = depth < 2 ? '' : 'none';
     showModal('item-actions');
@@ -683,38 +692,57 @@ async function createFolderElement(name, color, handle, cfg, activeMeeting, dept
   const entries = await listDirectory(handle).catch(() => []);
   const fullPath = parentPath ? `${parentPath}/${name}` : name;
 
+  // Store subfolder count for drag validation
+  const subfolderCount = entries.filter(e => e.kind === 'directory').length;
+  folderRow.dataset.subfolderCount = subfolderCount;
+
   for (const entry of entries) {
     if (entry.kind === 'file') {
-      const fileEl = createFileElement(entry.name, fullPath, activeMeeting, depth + 1);
-      children.appendChild(fileEl);
+      children.appendChild(createFileElement(entry.name, fullPath, activeMeeting, depth + 1));
     } else if (entry.kind === 'directory' && depth < 2) {
       const subColor = cfg.folderColors?.[`${fullPath}/${entry.name}`] || cfg.folderColors?.[entry.name] || '#6b7280';
-      children.appendChild(await createFolderElement(entry.name, subColor, entry.handle, cfg, activeMeeting, depth + 1, fullPath));
+      children.appendChild(await createFolderElement(
+        entry.name, subColor, entry.handle, cfg, activeMeeting, depth + 1, fullPath, handle
+      ));
     }
   }
 
   folderRow.addEventListener('click', e => {
-    if (e.target === menuBtn || menuBtn.contains(e.target)) return;
-    if (dragHandle.contains(e.target)) return;
+    if (menuBtn.contains(e.target) || dragHandle.contains(e.target)) return;
     folderRow.classList.toggle('collapsed');
   });
 
-  // Drop zone for files and folders
+  // Drop zone — accepts files and root-level folders
   folderRow.addEventListener('dragover', e => {
+    e.stopPropagation();
+    const isFolderDrag = currentDragData?.kind === 'folder';
+    if (isFolderDrag) {
+      const count = parseInt(folderRow.dataset.subfolderCount || '0');
+      const isSelf = currentDragData.name === name;
+      if (count >= 3 || isSelf) {
+        folderRow.classList.add('drag-forbidden');
+        folderRow.classList.remove('drag-over');
+        return; // no preventDefault → drop forbidden
+      }
+    }
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     folderRow.classList.add('drag-over');
+    folderRow.classList.remove('drag-forbidden');
   });
-  folderRow.addEventListener('dragleave', () => folderRow.classList.remove('drag-over'));
+  folderRow.addEventListener('dragleave', () => {
+    folderRow.classList.remove('drag-over', 'drag-forbidden');
+  });
   folderRow.addEventListener('drop', e => {
+    e.stopPropagation();
     e.preventDefault();
-    folderRow.classList.remove('drag-over');
+    folderRow.classList.remove('drag-over', 'drag-forbidden');
     let data;
     try { data = JSON.parse(e.dataTransfer.getData('text/plain')); } catch { return; }
     if (data.kind === 'folder') {
       if (data.name !== name) handleFolderDrop(data.name, name);
     } else {
-      handleFileDrop(e, fullPath);
+      handleFileDrop(data, fullPath);
     }
   });
 
@@ -740,7 +768,6 @@ function createFileElement(filename, folder, activeMeeting, depth = 0) {
   nameEl.className   = 'sidebar-item-name';
   nameEl.textContent = displayName;
 
-  // Context menu button
   const menuBtn = document.createElement('button');
   menuBtn.className   = 'sidebar-item-menu';
   menuBtn.textContent = '⁝';
@@ -748,10 +775,7 @@ function createFileElement(filename, folder, activeMeeting, depth = 0) {
   menuBtn.setAttribute('aria-label', 'Ações do arquivo');
   menuBtn.addEventListener('click', e => {
     e.stopPropagation();
-    contextItem = {
-      kind: 'file', filename, folder,
-      relativePath: folder ? `${folder}/${filename}` : filename,
-    };
+    contextItem = { kind: 'file', filename, folder, relativePath: folder ? `${folder}/${filename}` : filename };
     document.getElementById('item-actions-title').textContent = `📄 ${displayName}`;
     document.getElementById('btn-action-subfolder').style.display = 'none';
     showModal('item-actions');
@@ -765,10 +789,12 @@ function createFileElement(filename, folder, activeMeeting, depth = 0) {
 
   el.setAttribute('draggable', 'true');
   el.addEventListener('dragstart', e => {
+    e.stopPropagation();
+    currentDragData = { kind: 'file', filename, folder };
     e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'file', filename, folder }));
   });
   el.addEventListener('click', e => {
-    if (e.target === menuBtn || menuBtn.contains(e.target)) return;
+    if (menuBtn.contains(e.target)) return;
     openMeetingFile(filename, folder);
   });
   return el;
@@ -781,26 +807,27 @@ async function executeRenameItem() {
   if (!newName || !contextItem) { hideModal(); return; }
 
   if (contextItem.kind === 'file') {
-    const meeting = [...meetings.values()].find(m => m.filename === contextItem.relativePath);
-    const ext     = contextItem.filename.endsWith('.txt') ? '.txt' : '.md';
-    const newFilename = `${newName.replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, '_')}${ext}`;
+    const ext         = contextItem.filename.endsWith('.txt') ? '.txt' : '.md';
+    const sanitized   = newName.replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, '_');
+    const newFilename = `${sanitized}${ext}`;
     const folder      = contextItem.folder || '';
     const newRelative = folder ? `${folder}/${newFilename}` : newFilename;
     try {
       const resolved = await resolveUniqueFilename(newRelative);
       await renameFile(contextItem.relativePath, resolved);
-      if (meeting) {
-        meeting.filename = resolved;
-        const tabId = [...meetings.entries()].find(([, m]) => m === meeting)?.[0];
-        if (tabId) { updateTabName(tabId, newName); updateMeetingData(tabId, { name: newName }); }
-        loadMeetingIntoHeader(getActiveTabId());
-        persistTabState();
+      for (const [id, m] of meetings.entries()) {
+        if (m.filename === contextItem.relativePath) {
+          m.filename = resolved;
+          updateTabName(id, newName);
+          updateMeetingData(id, { name: newName });
+          if (id === getActiveTabId()) loadMeetingIntoHeader(id);
+        }
       }
+      persistTabState();
     } catch (err) { console.error('File rename failed:', err); }
   } else if (contextItem.kind === 'folder') {
     try {
       await renameFolder(contextItem.name, newName, contextItem.parentHandle);
-      // Update any open meetings in this folder
       for (const [id, m] of meetings.entries()) {
         if (m.folder === contextItem.fullPath || m.folder.startsWith(contextItem.fullPath + '/')) {
           m.folder   = m.folder.replace(contextItem.fullPath, newName);
@@ -823,7 +850,6 @@ async function executeDeleteItem() {
   if (contextItem.kind === 'file') {
     try {
       await deleteFile(contextItem.relativePath);
-      // Close any open tab for this file
       for (const [tabId, m] of meetings.entries()) {
         if (m.filename === contextItem.relativePath) {
           meetings.delete(tabId);
@@ -835,10 +861,11 @@ async function executeDeleteItem() {
     } catch (err) { console.error('Delete file failed:', err); }
   } else if (contextItem.kind === 'folder') {
     try {
+      // Use the correct parentHandle (supports any depth)
       await deleteDirectory(contextItem.name, contextItem.parentHandle);
-      // Close any open tabs for files inside this folder
-      for (const [tabId, m] of meetings.entries()) {
-        if (m.folder === contextItem.fullPath || m.folder.startsWith(contextItem.fullPath + '/') ||
+      for (const [tabId, m] of [...meetings.entries()]) {
+        if (m.folder === contextItem.fullPath ||
+            m.folder.startsWith(contextItem.fullPath + '/') ||
             m.filename.startsWith(contextItem.fullPath + '/')) {
           meetings.delete(tabId);
           lastSavedContent.delete(tabId);
@@ -854,18 +881,17 @@ async function executeDeleteItem() {
   persistTabState();
 }
 
-// ── Folder drag-drop ───────────────────────────────────────
+// ── Drag: folder into folder ───────────────────────────────
 
 async function handleFolderDrop(srcName, destName) {
   if (srcName === destName) return;
   try {
     await moveFolderIntoFolder(srcName, destName);
-    // Update open meetings that were in srcName
     const newBase = `${destName}/${srcName}`;
     for (const [id, m] of meetings.entries()) {
       if (m.folder === srcName || m.folder.startsWith(srcName + '/')) {
         const newFolder   = m.folder === srcName ? newBase : m.folder.replace(srcName, newBase);
-        const newFilename = m.filename.replace(m.folder, newFolder);
+        const newFilename = m.filename.replace(m.folder + '/', newFolder + '/');
         m.folder   = newFolder;
         m.filename = newFilename;
         if (id === getActiveTabId()) loadMeetingIntoHeader(id);
@@ -876,23 +902,59 @@ async function handleFolderDrop(srcName, destName) {
   } catch (err) {
     if (err.message === 'MAX_SUBFOLDERS') {
       alert('Esta pasta já contém 3 subpastas. Não é possível mover para dentro dela.');
-    } else {
-      console.error('Move folder failed:', err);
-    }
+    } else { console.error('Move folder failed:', err); }
   }
 }
 
-async function handleFileDrop(e, targetFolder) {
-  let data;
-  try { data = JSON.parse(e.dataTransfer.getData('text/plain')); } catch { return; }
+// ── Drag: file or folder to root ───────────────────────────
+
+async function handleDropToRoot(data) {
+  if (!data) return;
+
+  if (data.kind === 'file') {
+    if (!data.folder) return; // already at root
+    const srcPath  = `${data.folder}/${data.filename}`;
+    const destPath = data.filename;
+    try {
+      await renameFile(srcPath, destPath);
+      for (const [, m] of meetings.entries()) {
+        if (m.filename === srcPath) { m.filename = destPath; m.folder = ''; }
+      }
+      persistTabState();
+      await refreshDirectoryTree();
+    } catch (err) { console.error('Move file to root failed:', err); }
+
+  } else if (data.kind === 'folder' && data.depth > 0) {
+    try {
+      await moveFolderBetweenDirs(data.name, currentDragData?.parentHandle || getRootHandle(), getRootHandle());
+      for (const [id, m] of meetings.entries()) {
+        if (m.folder === data.name || m.folder.startsWith(data.name + '/') ||
+            m.folder === `${data.parentPath}/${data.name}` ||
+            m.folder.startsWith(`${data.parentPath}/${data.name}/`)) {
+          const oldBase = data.parentPath ? `${data.parentPath}/${data.name}` : data.name;
+          const newBase = data.name;
+          m.folder   = m.folder.replace(oldBase, newBase);
+          m.filename = m.filename.replace(oldBase + '/', newBase + '/');
+          if (id === getActiveTabId()) loadMeetingIntoHeader(id);
+        }
+      }
+      persistTabState();
+      await refreshDirectoryTree();
+    } catch (err) { console.error('Move folder to root failed:', err); }
+  }
+}
+
+// ── Drag: file to folder ───────────────────────────────────
+
+async function handleFileDrop(data, targetFolder) {
   const { filename, folder: src } = data;
   const srcPath  = src ? `${src}/${filename}` : filename;
   const destPath = `${targetFolder}/${filename}`;
   if (srcPath === destPath) return;
   try {
     await renameFile(srcPath, destPath);
-    for (const [, meeting] of meetings.entries()) {
-      if (meeting.filename === srcPath) { meeting.filename = destPath; meeting.folder = targetFolder; break; }
+    for (const [, m] of meetings.entries()) {
+      if (m.filename === srcPath) { m.filename = destPath; m.folder = targetFolder; }
     }
     persistTabState();
     await refreshDirectoryTree();
@@ -904,7 +966,6 @@ async function handleFileDrop(e, targetFolder) {
 async function openMeetingFile(filename, folder) {
   const relativePath = folder ? `${folder}/${filename}` : filename;
 
-  // Already open?
   for (const [tabId, meeting] of meetings.entries()) {
     if (meeting.filename === relativePath) {
       setActiveTab(tabId);

@@ -129,6 +129,13 @@ function updateEmptyState() {
 
 function handleTabKeyNav(e) {
   if (!e.altKey) return;
+
+  // Alt+Q — close active tab
+  if (e.key === 'q' || e.key === 'Q') {
+    if (activeTabId) { e.preventDefault(); requestCloseTab(activeTabId); }
+    return;
+  }
+
   if (e.key !== 'PageDown' && e.key !== 'PageUp') return;
   if (tabs.length < 2) return;
 

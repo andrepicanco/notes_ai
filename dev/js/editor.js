@@ -57,6 +57,18 @@ function setupKeyboardShortcuts() {
 // ── Public API ─────────────────────────────────────────────
 
 export function focusEditor()   { editor?.commands.focus('end'); }
+
+export function focusAtCoords(clientX, clientY) {
+  if (!editor) return;
+  const view = editor.view;
+  const rect = view.dom.getBoundingClientRect();
+  if (clientY < rect.top)    { editor.commands.focus('start'); return; }
+  if (clientY > rect.bottom) { editor.commands.focus('end');   return; }
+  const clampedX  = Math.max(rect.left + 2, Math.min(rect.right - 2, clientX));
+  const posResult = view.posAtCoords({ left: clampedX, top: clientY });
+  if (posResult) { editor.commands.setTextSelection(posResult.pos); editor.commands.focus(); }
+  else           { editor.commands.focus('end'); }
+}
 export function clearEditor()   { editor?.commands.clearContent(); }
 export function destroyEditor() { editor?.destroy(); editor = null; }
 export function isEditorEmpty() { return !editor?.getText().trim(); }

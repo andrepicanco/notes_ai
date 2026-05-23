@@ -215,21 +215,23 @@ a:hover { text-decoration: underline; }
 .tab.active .tab-close { opacity: 1; }
 .tab-close:hover { background: var(--bg-hover); color: var(--text); }
 
-/* + new meeting button — accent color */
+/* + new meeting button — compact rounded, accent color */
 #btn-new-tab {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: var(--tabs-h);
-  height: var(--tabs-h);
+  align-self: center;
+  padding: 6px 4px;
+  margin: 0 6px;
+  height: 18px;
+  border-radius: var(--radius);
   border: none;
   background: var(--accent);
   color: var(--accent-text);
   cursor: pointer;
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 400;
   flex-shrink: 0;
-  border-left: 1px solid var(--border);
   transition: background-color var(--transition);
 }
 #btn-new-tab:hover { background: var(--accent-hover); }
@@ -773,7 +775,9 @@ a:hover { text-decoration: underline; }
 }
 
 /* ─── Drag & Drop ────────────────────────────────────────── */
-.sidebar-item.drag-over { background: var(--bg-hover); outline: 2px dashed var(--accent); outline-offset: -2px; }
+.sidebar-item.drag-over     { background: var(--bg-hover); outline: 2px dashed var(--accent); outline-offset: -2px; }
+.sidebar-item.drag-forbidden { outline: 2px solid var(--danger); outline-offset: -2px; cursor: not-allowed; }
+#directory-tree.drag-over-root { outline: 2px dashed var(--accent); outline-offset: -4px; background: var(--bg-hover); }
 
 /* ─── Scrollbars ─────────────────────────────────────────── */
 * { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }

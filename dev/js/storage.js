@@ -296,6 +296,14 @@ export async function renameFolder(oldName, newName, parentHandle = null) {
   } catch { /* non-fatal */ }
 }
 
+export async function moveFolderBetweenDirs(folderName, srcParentHandle, destParentHandle) {
+  if (!srcParentHandle || !destParentHandle) throw new Error('No handles provided');
+  const srcDir  = await srcParentHandle.getDirectoryHandle(folderName);
+  const destDir = await destParentHandle.getDirectoryHandle(folderName, { create: true });
+  await copyDirContents(srcDir, destDir);
+  await srcParentHandle.removeEntry(folderName, { recursive: true });
+}
+
 export async function moveFolderIntoFolder(srcName, destFolderName) {
   if (!rootHandle) throw new Error('No root folder');
   const destDir = await rootHandle.getDirectoryHandle(destFolderName);
