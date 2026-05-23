@@ -4,18 +4,20 @@ const TOOLTIP_KEY = 'notesai-tabs-tooltip-shown';
 let tabs = [];
 let activeTabId = null;
 let onTabSwitch = null;
-let onTabClose = null;
+let onTabClose  = null;
+let onNewTab    = null;
 
-export function initTabs({ onSwitch, onClose }) {
+export function initTabs({ onSwitch, onClose, onNew }) {
   onTabSwitch = onSwitch;
-  onTabClose = onClose;
+  onTabClose  = onClose;
+  onNewTab    = onNew;
 
   document.addEventListener('keydown', handleTabKeyNav);
   document.getElementById('btn-new-tab').addEventListener('click', () => {
-    if (onTabSwitch) onTabSwitch(null);
+    if (onNewTab) onNewTab();
   });
   document.getElementById('btn-new-meeting-empty').addEventListener('click', () => {
-    if (onTabSwitch) onTabSwitch(null);
+    if (onNewTab) onNewTab();
   });
 }
 
@@ -47,6 +49,7 @@ export function closeTab(tabId) {
   if (activeTabId === tabId) {
     const next = tabs[idx] || tabs[idx - 1] || null;
     activeTabId = next ? next.id : null;
+    // Notify switch only when there IS a next tab; null just shows empty state
     if (onTabSwitch) onTabSwitch(activeTabId);
   }
   renderTabs();
@@ -61,6 +64,7 @@ export function setActiveTab(tabId) {
 
 export function getActiveTabId() { return activeTabId; }
 export function getTabCount()    { return tabs.length; }
+export function getAllTabs()      { return tabs.map(t => ({ ...t })); }
 
 export function getMeetingData(tabId) {
   const tab = tabs.find(t => t.id === tabId);
@@ -90,14 +94,14 @@ function renderTabs() {
     el.dataset.tabId = tab.id;
 
     const nameEl = document.createElement('span');
-    nameEl.className = 'tab-name';
+    nameEl.className   = 'tab-name';
     nameEl.textContent = tab.name || 'Nova reunião';
-    nameEl.title = tab.name || 'Nova reunião';
+    nameEl.title       = tab.name || 'Nova reunião';
 
     const closeBtn = document.createElement('button');
     closeBtn.className = 'tab-close';
     closeBtn.innerHTML = '×';
-    closeBtn.title = 'Fechar';
+    closeBtn.title     = 'Fechar';
     closeBtn.setAttribute('aria-label', `Fechar ${tab.name}`);
     closeBtn.addEventListener('click', e => { e.stopPropagation(); requestCloseTab(tab.id); });
 
@@ -162,16 +166,17 @@ function showMaxTabsWarning() {
   document.getElementById('modal-confirm-title').textContent = 'Limite de abas atingido';
   document.getElementById('modal-confirm-desc').textContent =
     `O NotesAI suporta até ${MAX_TABS} reuniões abertas. Feche uma aba para continuar.`;
-  const okBtn = document.getElementById('btn-confirm-ok');
+  const okBtn    = document.getElementById('btn-confirm-ok');
+  const cancelBtn = document.getElementById('btn-confirm-cancel');
   okBtn.textContent = 'OK';
-  okBtn.className = 'btn btn-primary';
-  document.getElementById('btn-confirm-cancel').classList.add('hidden');
+  okBtn.className   = 'btn btn-primary';
+  cancelBtn.classList.add('hidden');
 
   const cleanup = () => {
     overlay.classList.add('hidden');
     modal.classList.add('hidden');
-    document.getElementById('btn-confirm-cancel').classList.remove('hidden');
-    okBtn.className = 'btn btn-danger';
+    cancelBtn.classList.remove('hidden');
+    okBtn.className   = 'btn btn-danger';
     okBtn.textContent = 'Confirmar';
     okBtn.removeEventListener('click', cleanup);
   };

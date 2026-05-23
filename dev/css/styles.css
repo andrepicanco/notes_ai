@@ -1,11 +1,10 @@
 /* ─── Font: DM Sans ──────────────────────────────────────── */
 @font-face {
-  font-family: 'DM Sans', sans-serif;
-  /* src: url('../libs/dm-sans.woff2') format('woff2'); */
-  src: url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap');
-  font-weight: 400 900;
+  font-family: 'DM Sans';
+  src: url('../libs/dm-sans.woff2') format('woff2');
+  font-weight: 100 900;
   font-style: normal;
-  /* font-display: swap; */
+  font-display: swap;
 }
 
 /* ─── Reset ─────────────────────────────────────────────── */
@@ -23,7 +22,7 @@ html, body { height: 100%; }
   --sidebar-w:  220px;
   --tabs-h:     40px;
   --bottom-h:   52px;
-  --logo-w:     220px;      /* tabs list starts at 220px too */
+  --logo-w:     220px;
 }
 
 /* ── Light (Coastal Blues) ───────────────────────────────── */
@@ -51,7 +50,30 @@ html, body { height: 100%; }
 }
 
 /* ── Dark (Coastal Blues) ────────────────────────────────── */
+/* ── Dark (Coastal Blues — GitHub-inspired) ─────────────── */
 [data-theme="dark"] {
+  --bg:               #0d1117;   /* base GitHub dark — quase preto neutro        */
+  --bg-surface:       #131c27;   /* leve toque azul frio vs GitHub (#161b22)     */
+  --bg-sidebar:       #111920;   /* um grau mais azul que o bg, mas sutil        */
+  --bg-hover:         #1c2d3f;   /* hover visível sem explodir de cor            */
+  --bg-input:         #19253200; /* inputs discretos                             */
+  --bg-tab-active:    #0d1117;   /* aba ativa = fundo principal (sem destaque)   */
+  --bg-tab:           #111920;   /* abas inativas = sidebar tone                 */
+  --bg-modal:         #131c27;   /* modal = surface                              */
+  --text:             #e6edf3;   /* GitHub dark text — branco levemente frio     */
+  --text-muted:       #7d9baf;   /* muted com toque azul (vs GitHub #848d97)     */
+  --text-placeholder: #4d6b7d;   /* placeholder discreto                         */
+  --accent:           #2A6F97;   /* Coastal Blues médio — menos saturado         */
+  --accent-hover:     #2C7DA0;   /* um tom acima no hover                        */
+  --accent-text:      #e6edf3;   /* texto sobre botão primário                   */
+  --border:           #1e2d3d;   /* borda sutil com temperatura azul             */
+  --border-input:     #2a3f52;   /* borda de input um pouco mais visível         */
+  --highlight-bg:     #78350f;   /* manter                                       */
+  --danger:           #f87171;   /* manter                                       */
+  --success:          #4ade80;   /* manter                                       */
+  --overlay:          rgba(0,0,0,.6);
+}
+/* [data-theme="dark"] {
   --bg:               #012A4A;
   --bg-surface:       #01375f;
   --bg-sidebar:       #013A63;
@@ -72,7 +94,7 @@ html, body { height: 100%; }
   --danger:           #f87171;
   --success:          #4ade80;
   --overlay:          rgba(0,0,0,.55);
-}
+} */
 
 /* Smooth theme transitions */
 body, #app, .modal, input, textarea, button, .tab, .sidebar-item,
@@ -113,7 +135,6 @@ a:hover { text-decoration: underline; }
   user-select: none;
 }
 
-/* Logo — occupies 30% so tabs start there */
 #tabs-logo {
   display: flex;
   align-items: center;
@@ -328,7 +349,42 @@ a:hover { text-decoration: underline; }
 }
 .sidebar-folder.collapsed .sidebar-toggle { transform: rotate(-90deg); }
 .sidebar-folder.collapsed + .folder-children { display: none; }
-.folder-children { }
+
+/* Folder drag handle (color dot + icon) */
+.folder-drag-handle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: grab;
+  flex-shrink: 0;
+}
+.folder-drag-handle:active { cursor: grabbing; }
+
+/* Sidebar ⁝ context menu button */
+.sidebar-item-menu {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius);
+  border: none;
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0;
+  line-height: 1;
+  flex-shrink: 0;
+  z-index: 2;
+  transition: background-color var(--transition), color var(--transition);
+}
+.sidebar-item:hover .sidebar-item-menu { display: flex; }
+.sidebar-item-menu:hover { background: var(--border) !important; color: var(--text); }
 
 /* ─── Main Area ──────────────────────────────────────────── */
 #main-area {
@@ -354,18 +410,26 @@ a:hover { text-decoration: underline; }
 
 /* ─── Meeting Header ─────────────────────────────────────── */
 #meeting-header {
-  padding: 16px 32px 12px;
+  padding: 14px 0 10px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   background: var(--bg-surface);
+  display: flex;
+  justify-content: center;
 }
 #meeting-header.hidden { display: none; }
+
+.meeting-header-inner {
+  width: 100%;
+  max-width: 720px;
+  padding: 0 24px;
+}
 
 .meeting-title-row {
   display: flex;
   align-items: baseline;
   gap: 12px;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 #meeting-name-input {
@@ -409,35 +473,42 @@ a:hover { text-decoration: underline; }
 #meeting-objective-input::placeholder { color: var(--text-placeholder); }
 #meeting-objective-input:focus { border-bottom-color: var(--accent); }
 
-/* ─── Editor Area (conteúdo era centralizado, ajustei) ────────────────── */
+/* ─── Editor Area ────────────────────────────────────────── */
 #editor-wrap {
   flex: 1;
   overflow-y: auto;
-  padding: 32px 24px;
+  padding: 28px 24px;
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
   background: var(--bg-surface);
   display: flex;
   flex-direction: column;
-  align-items:normal;
+  align-items: center;
+  cursor: text;
 }
 #editor-wrap::-webkit-scrollbar { width: 6px; }
 #editor-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 #editor-wrap.hidden { display: none; }
 
-/* ProseMirror — centralizado, largura máxima */
-.ProseMirror {
+#editor {
   width: 100%;
   max-width: 720px;
-  min-height: 400px;
+  flex: 1;
+}
+
+/* ProseMirror — ocupa todo o #editor */
+.ProseMirror {
+  width: 100%;
+  min-height: 70vh;
   outline: none;
   font-family: var(--font);
   font-size: 15px;
-  line-height: 1.75;
+  line-height: 1.4;
   color: var(--text);
   caret-color: var(--accent);
+  cursor: text;
 }
-.ProseMirror p { margin-bottom: 0.65em; }
+.ProseMirror p { margin-bottom: 0.5em; }
 .ProseMirror p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);
   color: var(--text-placeholder);
@@ -448,10 +519,10 @@ a:hover { text-decoration: underline; }
 .ProseMirror h1 { font-size: 1.75em; font-weight: 700; margin: 1em 0 .4em; line-height: 1.3; }
 .ProseMirror h2 { font-size: 1.35em; font-weight: 600; margin: .9em 0 .4em; line-height: 1.35; }
 .ProseMirror h3 { font-size: 1.1em;  font-weight: 600; margin: .8em 0 .3em; }
-.ProseMirror ul, .ProseMirror ol { padding-left: 1.5em; margin-bottom: .6em; }
-.ProseMirror li { margin-bottom: .2em; }
+.ProseMirror ul, .ProseMirror ol { padding-left: 1.5em; margin-bottom: .48em; }
+.ProseMirror li { margin-bottom: .16em; }
 .ProseMirror ul[data-type="taskList"] { list-style: none; padding-left: 0; }
-.ProseMirror ul[data-type="taskList"] li { display: flex; align-items: flex-start; gap: 8px; margin-bottom: .3em; }
+.ProseMirror ul[data-type="taskList"] li { display: flex; align-items: flex-start; gap: 8px; margin-bottom: .25em; }
 .ProseMirror ul[data-type="taskList"] li > label { margin-top: 3px; flex-shrink: 0; }
 .ProseMirror ul[data-type="taskList"] li > label input[type="checkbox"] {
   width: 15px; height: 15px; cursor: pointer; accent-color: var(--accent);
@@ -464,11 +535,11 @@ a:hover { text-decoration: underline; }
 .ProseMirror strong { font-weight: 700; }
 .ProseMirror em { font-style: italic; }
 .ProseMirror u { text-decoration: underline; }
-.ProseMirror blockquote { border-left: 3px solid var(--border); padding-left: 1em; color: var(--text-muted); margin: .8em 0; }
+.ProseMirror blockquote { border-left: 3px solid var(--border); padding-left: 1em; color: var(--text-muted); margin: .6em 0; }
 .ProseMirror code { background: var(--bg-hover); border-radius: 3px; padding: .1em .3em; font-size: .9em; font-family: 'Cascadia Code', 'Fira Code', monospace; }
-.ProseMirror pre { background: var(--bg-hover); border-radius: var(--radius); padding: 12px 16px; overflow-x: auto; margin-bottom: .8em; }
+.ProseMirror pre { background: var(--bg-hover); border-radius: var(--radius); padding: 12px 16px; overflow-x: auto; margin-bottom: .6em; }
 .ProseMirror pre code { background: none; padding: 0; }
-.ProseMirror hr { border: none; border-top: 1px solid var(--border); margin: 1.5em 0; }
+.ProseMirror hr { border: none; border-top: 1px solid var(--border); margin: 1.2em 0; }
 .ProseMirror ::selection { background: rgba(1,79,134,.2); }
 [data-theme="dark"] .ProseMirror ::selection { background: rgba(70,143,175,.25); }
 
@@ -476,9 +547,9 @@ a:hover { text-decoration: underline; }
 #bottom-bar {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   height: var(--bottom-h);
-  padding: 0 24px;
+  padding: 0 20px;
   border-top: 1px solid var(--border);
   background: var(--bg-surface);
   flex-shrink: 0;
@@ -502,6 +573,24 @@ a:hover { text-decoration: underline; }
   opacity: 0; transition: opacity var(--transition);
 }
 #autosave-indicator.visible { opacity: 1; }
+
+/* Shortcuts help button */
+.btn-help {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 15px;
+  flex-shrink: 0;
+  transition: all var(--transition);
+}
+.btn-help:hover { background: var(--bg-hover); color: var(--text); border-color: var(--accent); }
 
 /* ─── Buttons ────────────────────────────────────────────── */
 .btn {
@@ -587,6 +676,56 @@ a:hover { text-decoration: underline; }
   border-top: 1px solid var(--border); padding-top: 12px; line-height: 1.5;
 }
 
+/* ─── Sidebar context menu modal ─────────────────────────── */
+.item-actions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 12px 0 4px;
+}
+.item-action-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  border: none;
+  background: var(--bg-hover);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  transition: all var(--transition);
+}
+.item-action-btn:hover { background: var(--border); }
+.item-action-btn--danger { color: var(--danger); }
+.item-action-btn--danger:hover { background: var(--danger); color: #fff; }
+
+/* ─── Shortcuts modal grid ───────────────────────────────── */
+.shortcuts-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 16px;
+  margin: 14px 0 4px;
+  align-items: center;
+}
+.shortcuts-grid kbd {
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 7px;
+  font-size: 12px;
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  color: var(--text);
+  white-space: nowrap;
+}
+.shortcuts-grid span {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
 /* ─── Form fields ────────────────────────────────────────── */
 .field-label {
   display: block; font-size: 12px; font-weight: 500; color: var(--text-muted);
@@ -635,8 +774,6 @@ a:hover { text-decoration: underline; }
 
 /* ─── Drag & Drop ────────────────────────────────────────── */
 .sidebar-item.drag-over { background: var(--bg-hover); outline: 2px dashed var(--accent); outline-offset: -2px; }
-.sidebar-item[draggable="true"] { cursor: grab; }
-.sidebar-item[draggable="true"]:active { cursor: grabbing; }
 
 /* ─── Scrollbars ─────────────────────────────────────────── */
 * { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }

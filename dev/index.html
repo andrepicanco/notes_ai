@@ -69,9 +69,9 @@
       </div>
     </div>
 
-    <!-- Nova pasta -->
+    <!-- Nova pasta / subpasta -->
     <div id="modal-new-folder" class="modal hidden">
-      <p class="modal-title">Nova pasta</p>
+      <p class="modal-title" id="new-folder-title">Nova pasta</p>
       <div class="field-group">
         <label class="field-label" for="input-folder-name">Nome</label>
         <input id="input-folder-name" class="field-input" type="text"
@@ -96,6 +96,32 @@
       </div>
     </div>
 
+    <!-- Ações de item da sidebar (⁝ menu) -->
+    <div id="modal-item-actions" class="modal hidden">
+      <p class="modal-title" id="item-actions-title"></p>
+      <div class="item-actions-list">
+        <button class="item-action-btn" id="btn-action-rename">✏️&nbsp; Renomear</button>
+        <button class="item-action-btn" id="btn-action-subfolder">📁&nbsp; Criar subpasta</button>
+        <button class="item-action-btn item-action-btn--danger" id="btn-action-delete">🗑&nbsp; Excluir</button>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="btn-item-actions-cancel">Cancelar</button>
+      </div>
+    </div>
+
+    <!-- Renomear item -->
+    <div id="modal-rename-item" class="modal hidden">
+      <p class="modal-title" id="rename-item-title">Renomear</p>
+      <div class="field-group">
+        <label class="field-label" for="input-rename-value">Novo nome</label>
+        <input id="input-rename-value" class="field-input" type="text" maxlength="200">
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="btn-rename-cancel">Cancelar</button>
+        <button class="btn btn-primary" id="btn-rename-confirm">Renomear</button>
+      </div>
+    </div>
+
     <!-- Confirmação genérica -->
     <div id="modal-confirm" class="modal hidden">
       <p class="modal-title" id="modal-confirm-title">Confirmar ação</p>
@@ -103,6 +129,31 @@
       <div class="modal-actions">
         <button class="btn btn-ghost"  id="btn-confirm-cancel">Cancelar</button>
         <button class="btn btn-danger" id="btn-confirm-ok">Confirmar</button>
+      </div>
+    </div>
+
+    <!-- Atalhos de teclado -->
+    <div id="modal-shortcuts" class="modal hidden">
+      <p class="modal-title">⌨️ Atalhos de teclado</p>
+      <div class="shortcuts-grid">
+        <kbd>Ctrl+B</kbd>         <span>Negrito</span>
+        <kbd>Ctrl+I</kbd>         <span>Itálico</span>
+        <kbd>Ctrl+U</kbd>         <span>Sublinhado</span>
+        <kbd>Ctrl+Shift+H</kbd>   <span>Destaque (highlight)</span>
+        <kbd># + Espaço</kbd>     <span>Título H1</span>
+        <kbd>## + Espaço</kbd>    <span>Título H2</span>
+        <kbd>### + Espaço</kbd>   <span>Título H3</span>
+        <kbd>- + Espaço</kbd>     <span>Lista com marcadores</span>
+        <kbd>1. + Espaço</kbd>    <span>Lista numerada</span>
+        <kbd>[ ] + Espaço</kbd>   <span>Checkbox</span>
+        <kbd>Tab</kbd>            <span>Indentar lista</span>
+        <kbd>Shift+Tab</kbd>      <span>Desindentar lista</span>
+        <kbd>Ctrl+S</kbd>         <span>Salvar agora</span>
+        <kbd>Alt+PageDown</kbd>   <span>Próxima aba</span>
+        <kbd>Alt+PageUp</kbd>     <span>Aba anterior</span>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="btn-shortcuts-close">Fechar</button>
       </div>
     </div>
 
@@ -139,19 +190,21 @@
 
         <!-- Cabeçalho da reunião -->
         <div id="meeting-header" class="hidden">
-          <div class="meeting-title-row">
-            <input id="meeting-name-input" type="text"
-                   placeholder="Nome da reunião"
-                   aria-label="Nome da reunião"
-                   spellcheck="true">
-            <span id="meeting-date-display"></span>
-          </div>
-          <div class="meeting-objective-row">
-            <label for="meeting-objective-input">Objetivo</label>
-            <input id="meeting-objective-input" type="text"
-                   placeholder="Qual é o objetivo desta reunião?"
-                   aria-label="Objetivo da reunião"
-                   spellcheck="true">
+          <div class="meeting-header-inner">
+            <div class="meeting-title-row">
+              <input id="meeting-name-input" type="text"
+                     placeholder="Nome da reunião"
+                     aria-label="Nome da reunião"
+                     spellcheck="true">
+              <span id="meeting-date-display"></span>
+            </div>
+            <div class="meeting-objective-row">
+              <label for="meeting-objective-input">Objetivo</label>
+              <input id="meeting-objective-input" type="text"
+                     placeholder="Qual é o objetivo desta reunião?"
+                     aria-label="Objetivo da reunião"
+                     spellcheck="true">
+            </div>
           </div>
         </div>
 
@@ -175,6 +228,7 @@
             </div>
             <span id="autosave-indicator">Salvo</span>
           </div>
+          <button id="btn-shortcuts-help" class="btn-help" title="Atalhos de teclado" aria-label="Atalhos de teclado">⌨</button>
           <button id="btn-finish-notes" class="btn btn-primary" disabled
                   title="Preencha o objetivo da reunião para finalizar">
             Finalizar notas

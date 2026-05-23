@@ -253,6 +253,71 @@ export function sanitizeFilename(name) {
     || 'reuniao';
 }
 
+// ── Directory operations ───────────────────────────────────
+
+async function copyDirContents(srcDir, destDir) {
+  for await (const [name, handle] of srcDir.entries()) {
+    if (handle.kind === 'file') {
+      const file = await handle.getFile();
+      const text = await file.text();
+      const dest = await destDir.getFileHandle(name, { create: true });
+      const w    = await dest.createWritable();
+      await w.write(text);
+      await w.close();
+    } else if (handle.kind === 'directory') {
+      const sub = await destDir.getDirectoryHandle(name, { create: true });
+      await copyDirContents(handle, sub);
+    }
+  }
+}
+
+export async function deleteDirectory(name, parentHandle = null) {
+  const parent = parentHandle || rootHandle;
+  if (!parent) throw new Error('No root folder');
+  await parent.removeEntry(name, { recursive: true });
+}
+
+export async function renameFolder(oldName, newName, parentHandle = null) {
+  const parent = parentHandle || rootHandle;
+  if (!parent) throw new Error('No root folder');
+  if (oldName === newName) return;
+  const oldDir = await parent.getDirectoryHandle(oldName);
+  const newDir = await parent.getDirectoryHandle(newName, { create: true });
+  await copyDirContents(oldDir, newDir);
+  await parent.removeEntry(oldName, { recursive: true });
+  // Migrate folder color key
+  try {
+    const cfg = await loadConfig();
+    if (cfg.folderColors?.[oldName]) {
+      cfg.folderColors[newName] = cfg.folderColors[oldName];
+      delete cfg.folderColors[oldName];
+      await saveConfig(cfg);
+    }
+  } catch { /* non-fatal */ }
+}
+
+export async function moveFolderIntoFolder(srcName, destFolderName) {
+  if (!rootHandle) throw new Error('No root folder');
+  const destDir = await rootHandle.getDirectoryHandle(destFolderName);
+  // Enforce max 3 subfolders
+  let subCount = 0;
+  for await (const [, h] of destDir.entries()) { if (h.kind === 'directory') subCount++; }
+  if (subCount >= 3) throw new Error('MAX_SUBFOLDERS');
+  const targetDir = await destDir.getDirectoryHandle(srcName, { create: true });
+  const srcDir    = await rootHandle.getDirectoryHandle(srcName);
+  await copyDirContents(srcDir, targetDir);
+  await rootHandle.removeEntry(srcName, { recursive: true });
+  // Migrate folder color key
+  try {
+    const cfg = await loadConfig();
+    if (cfg.folderColors?.[srcName]) {
+      cfg.folderColors[`${destFolderName}/${srcName}`] = cfg.folderColors[srcName];
+      delete cfg.folderColors[srcName];
+      await saveConfig(cfg);
+    }
+  } catch { /* non-fatal */ }
+}
+
 // Default filename: YYYY-MM-DD_Reunião_HHmm.md
 export function buildDefaultFilename(date) {
   const d = date instanceof Date ? date : new Date(date);
