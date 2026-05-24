@@ -1,26 +1,33 @@
 import {
   initTabs, addTab, closeTab, setActiveTab, getActiveTabId,
-  updateTabName, updateMeetingData, getTabCount, getAllTabs,
+  updateTabName, updateMeetingData, getTabCount, getAllTabs, setTabRecording,
 } from './tabs.js';
 import {
   initStorage, requestRootFolder, restoreRootFolder, hasRootFolder, getRootHandle,
-  writeFile, readFile, deleteFile, fileExists, renameFile,
-  deleteDirectory, renameFolder, moveFolderIntoFolder, moveFolderBetweenDirs,
+  writeFile, readFile, deleteFile, renameFile,
+  deleteDirectory, renameFolder, moveFolderBetweenDirs,
   buildFilename, buildDefaultFilename,
   resolveUniqueFilename, listDirectory, createDirectory, setFolderColor,
   loadConfig, saveConfig, idbSave, idbLoad, getRootFolderName,
+  MAX_SUBFOLDERS, MAX_FOLDER_DEPTH,
 } from './storage.js';
 import { initEditor, focusEditor, focusAtCoords, setContent, getMarkdown, clearEditor } from './editor.js';
-import { saveGroqKey, getGroqKey, hasGroqKey } from './groq.js';
+import {
+  saveGroqKey, getGroqKey, hasGroqKey,
+  startTranscription, pauseTranscription, resumeTranscription,
+  stopTranscription, getTranscriptionState, refineNotes,
+} from './groq.js';
 
 // ── App state ──────────────────────────────────────────────
-const meetings         = new Map();
-const lastSavedContent = new Map();
-let autoSaveTimer     = null;
-let renameDebounce    = null;
-let contextItem       = null;
-let createSubfolderIn = null;
-let currentDragData   = null;   // set during dragstart, cleared on dragend/drop
+const meetings              = new Map();
+const lastSavedContent      = new Map();
+const transcriptionSegments = new Map(); // tabId → string[]
+let autoSaveTimer          = null;
+let renameDebounce         = null;
+let contextItem            = null;
+let createSubfolderIn      = null;
+let currentDragData        = null;
+let activeTxTabId          = null; // tab that owns the active/paused recording
 
 // ── Init ───────────────────────────────────────────────────
 
@@ -360,9 +367,16 @@ function loadMeetingIntoHeader(tabId) {
 function updateFinishButton() {
   const meeting = meetings.get(getActiveTabId());
   const btn     = document.getElementById('btn-finish-notes');
-  const has     = !!(meeting?.objective?.trim());
-  btn.disabled  = !has;
-  btn.title     = has ? 'Finalizar e refinar notas com IA' : 'Preencha o objetivo da reunião para finalizar';
+  if (meeting?.finalized) {
+    btn.disabled    = true;
+    btn.textContent = '✅ Concluído';
+    btn.title       = 'Notas já finalizadas';
+    return;
+  }
+  const has       = !!(meeting?.objective?.trim());
+  btn.disabled    = !has;
+  btn.textContent = 'Finalizar notas';
+  btn.title       = has ? 'Finalizar e refinar notas com IA' : 'Preencha o objetivo da reunião para finalizar';
 }
 
 // ── Rename scheduling (debounced 1 s) ──────────────────────
@@ -476,9 +490,15 @@ async function handleTabSwitch(tabId) {
   setTimeout(() => focusEditor(), 50);
   startAutoSave();
   persistTabState();
+  updateTranscriptionUI(tabId);
 }
 
 function handleTabClose(tabId) {
+  if (tabId === activeTxTabId) {
+    stopTranscription();
+    activeTxTabId = null;
+  }
+  transcriptionSegments.delete(tabId);
   saveMeeting(tabId).catch(console.error);
   meetings.delete(tabId);
   lastSavedContent.delete(tabId);
@@ -500,19 +520,201 @@ function stripHeader(content) {
 // ── Bottom bar ─────────────────────────────────────────────
 
 function setupBottomBar() {
-  document.getElementById('btn-finish-notes').addEventListener('click', async () => {
-    const tabId = getActiveTabId();
-    if (!tabId) return;
+  document.getElementById('btn-finish-notes').addEventListener('click', handleFinishNotes);
+  document.getElementById('btn-transcription').addEventListener('click', handleTranscriptionClick);
+}
+
+async function handleFinishNotes() {
+  const tabId = getActiveTabId();
+  if (!tabId) return;
+  const meeting = meetings.get(tabId);
+  if (!meeting?.objective?.trim()) return;
+
+  const btn = document.getElementById('btn-finish-notes');
+  btn.disabled    = true;
+  btn.textContent = '✨ Compilando...';
+
+  // If this tab owns the recording, stop it and wait for the final Whisper chunk
+  // (up to 10 s) before collecting content — avoids missing the last segment
+  if (tabId === activeTxTabId) {
+    const stopDone = stopTranscription();
+    activeTxTabId = null;
+    updateTranscriptionUI(tabId);
+    await Promise.race([stopDone, new Promise(r => setTimeout(r, 10_000))]);
+  }
+
+  const userNotes     = getMarkdown();
+  const transcription = getTabTranscription(tabId);
+
+  try {
+    const refined = await refineNotes({
+      meetingName:  meeting.name,
+      objective:    meeting.objective,
+      userNotes,
+      transcription,
+    });
+    // Append AI output after the user's notes, separated by a horizontal rule
+    const combined = userNotes.trimEnd() + '\n\n---\n\n' + refined;
+    setContent(combined);
+    meeting.finalized = true;
     await saveMeeting(tabId);
-    alert('Nota salva! O refinamento com IA estará disponível na Fase 3.');
+    btn.textContent = '✅ Concluído';
+  } catch (err) {
+    btn.disabled    = false;
+    btn.textContent = 'Finalizar notas';
+    const msg = err.message?.includes('NO_KEY')
+      ? 'Chave Groq ausente. Configure nas opções.'
+      : 'Erro ao refinar notas. Tente novamente.';
+    showTranscriptionError(msg);
+  }
+}
+
+async function handleTranscriptionClick() {
+  const tabId = getActiveTabId();
+  if (!tabId) return;
+
+  const state = getTranscriptionState();
+
+  if (state === 'idle') {
+    // Another tab already owns the recording — block
+    if (activeTxTabId && activeTxTabId !== tabId) {
+      showTranscriptionError('Outra reunião já está sendo gravada.');
+      return;
+    }
+    if (!hasGroqKey()) {
+      showTranscriptionError('Chave Groq ausente. Configure nas opções de onboarding.');
+      return;
+    }
+    await startTranscription({
+      onSegment: text => {
+        const segs = transcriptionSegments.get(tabId) || [];
+        segs.push(text);
+        transcriptionSegments.set(tabId, segs);
+      },
+      onError: code => {
+        activeTxTabId = null;
+        if (code === 'PERMISSION_DENIED') {
+          showTranscriptionError('Microfone bloqueado. Continue com anotações manuais.');
+        } else if (code === 'NO_KEY') {
+          showTranscriptionError('Chave API inválida. Verifique nas configurações.');
+        } else if (code === 'DISPLAY_DENIED') {
+          showTranscriptionError('Compartilhe a tela e ative "Compartilhar áudio do sistema" para gravar.');
+        } else {
+          showTranscriptionError('Não foi possível iniciar a gravação.');
+        }
+        updateTranscriptionUI(tabId);
+      },
+      onWarning: code => {
+        if (code === 'NO_SYSTEM_AUDIO') {
+          showTranscriptionError('Áudio do sistema não detectado — gravando somente microfone.');
+        }
+      },
+    });
+    if (getTranscriptionState() === 'recording') {
+      activeTxTabId = tabId;
+    }
+
+  } else if (state === 'recording') {
+    pauseTranscription();
+
+  } else if (state === 'paused') {
+    resumeTranscription({
+      onSegment: text => {
+        const segs = transcriptionSegments.get(activeTxTabId) || [];
+        segs.push(text);
+        transcriptionSegments.set(activeTxTabId, segs);
+      },
+    });
+  }
+
+  updateTranscriptionUI(tabId);
+}
+
+export function getTabTranscription(tabId) {
+  return (transcriptionSegments.get(tabId) || []).join('\n\n');
+}
+
+function updateTranscriptionUI(tabId) {
+  const btn       = document.getElementById('btn-transcription');
+  const indicator = document.getElementById('transcription-indicator');
+  const pulseEl   = document.getElementById('tx-pulse');
+  const statusEl  = document.getElementById('tx-status-text');
+  if (!btn || !indicator) return;
+
+  const state      = getTranscriptionState();
+  const isOwner    = tabId === activeTxTabId;
+  const otherOwner = activeTxTabId && !isOwner;
+
+  // Reset classes
+  btn.classList.remove('recording', 'paused');
+  btn.disabled = false;
+
+  if (state === 'recording' && isOwner) {
+    btn.textContent = '⏸ Pausar';
+    btn.classList.add('recording');
+    indicator.classList.remove('hidden', 'paused');
+    pulseEl.style.display  = '';
+    statusEl.textContent   = 'Transcrevendo...';
+
+  } else if (state === 'paused' && isOwner) {
+    btn.textContent = '▶ Retomar';
+    btn.classList.add('paused');
+    indicator.classList.remove('hidden');
+    indicator.classList.add('paused');
+    pulseEl.style.display  = 'none';
+    statusEl.textContent   = 'Pausado';
+
+  } else {
+    btn.textContent = '🎙 REC';
+    btn.disabled    = !!otherOwner; // disable if another tab is recording
+    indicator.classList.add('hidden');
+    indicator.classList.remove('paused');
+  }
+
+  const txState = getTranscriptionState();
+  setTabRecording(txState !== 'idle' ? activeTxTabId : null, txState);
+  updateSidebarRecDot();
+}
+
+function updateSidebarRecDot() {
+  document.querySelectorAll('.sidebar-file .rec-dot').forEach(d => {
+    d.classList.add('hidden');
+    d.classList.remove('paused');
   });
+  if (!activeTxTabId) return;
+  const txState = getTranscriptionState();
+  if (txState === 'idle') return;
+  const recMeeting = meetings.get(activeTxTabId);
+  if (!recMeeting?.filename) return;
+  const recPath = recMeeting.folder
+    ? `${recMeeting.folder}/${recMeeting.filename}`
+    : recMeeting.filename;
+  const fileEl = document.querySelector(`.sidebar-file[data-path="${CSS.escape(recPath)}"]`);
+  if (!fileEl) return;
+  const dot = fileEl.querySelector('.rec-dot');
+  if (!dot) return;
+  dot.classList.remove('hidden');
+  if (txState === 'paused') dot.classList.add('paused');
+}
+
+function showTranscriptionError(msg) {
+  const area = document.getElementById('status-area');
+  const el   = document.createElement('span');
+  el.className   = 'tx-error-msg';
+  el.textContent = msg;
+  area.prepend(el);
+  setTimeout(() => el.remove(), 4000);
 }
 
 // ── Editor wrap click → focus at cursor Y position ─────────
 
 function setupEditorWrapClick() {
-  document.getElementById('editor-wrap').addEventListener('click', e => {
+  const wrap = document.getElementById('editor-wrap');
+  let downX = 0, downY = 0;
+  wrap.addEventListener('mousedown', e => { downX = e.clientX; downY = e.clientY; });
+  wrap.addEventListener('click', e => {
     if (!getActiveTabId()) return;
+    if (Math.abs(e.clientX - downX) > 4 || Math.abs(e.clientY - downY) > 4) return;
     focusAtCoords(e.clientX, e.clientY);
   });
 }
@@ -538,8 +740,8 @@ async function handleCreateFolder() {
     if (createSubfolderIn) {
       const existingEntries = await listDirectory(createSubfolderIn.handle);
       const subCount = existingEntries.filter(e => e.kind === 'directory').length;
-      if (subCount >= 3) {
-        alert('Esta pasta já contém 3 subpastas. Não é possível adicionar mais.');
+      if (subCount >= MAX_SUBFOLDERS) {
+        alert(`Esta pasta já contém ${MAX_SUBFOLDERS} subpastas. Não é possível adicionar mais.`);
         createSubfolderIn = null; hideModal(); return;
       }
       const parentPath = createSubfolderIn.fullPath;
@@ -606,6 +808,7 @@ async function refreshDirectoryTree() {
     }
 
     // Root drop zone is set up once in setupSidebar — no re-registration needed here
+    updateSidebarRecDot();
   } catch (err) { console.error('Directory refresh failed:', err); }
 }
 
@@ -686,7 +889,7 @@ async function createFolderElement(name, color, handle, cfg, activeMeeting, dept
     const fullPath = parentPath ? `${parentPath}/${name}` : name;
     contextItem = { kind: 'folder', name, handle, parentHandle: ownParentHandle || getRootHandle(), depth, parentPath, fullPath };
     document.getElementById('item-actions-title').textContent = `📁 ${name}`;
-    document.getElementById('btn-action-subfolder').style.display = depth < 2 ? '' : 'none';
+    document.getElementById('btn-action-subfolder').style.display = depth < MAX_FOLDER_DEPTH ? '' : 'none';
     showModal('item-actions');
   });
 
@@ -709,7 +912,7 @@ async function createFolderElement(name, color, handle, cfg, activeMeeting, dept
   for (const entry of entries) {
     if (entry.kind === 'file') {
       children.appendChild(createFileElement(entry.name, fullPath, activeMeeting, depth + 1));
-    } else if (entry.kind === 'directory' && depth < 2) {
+    } else if (entry.kind === 'directory' && depth < MAX_FOLDER_DEPTH) {
       const subColor = cfg.folderColors?.[`${fullPath}/${entry.name}`] || cfg.folderColors?.[entry.name] || '#6b7280';
       children.appendChild(await createFolderElement(
         entry.name, subColor, entry.handle, cfg, activeMeeting, depth + 1, fullPath, handle
@@ -736,8 +939,7 @@ async function createFolderElement(name, color, handle, cfg, activeMeeting, dept
         : currentDragData.name;
       const isSelf       = srcFullPath === fullPath;
       const isDescendant = fullPath.startsWith(srcFullPath + '/');
-      // depth >= 2 means destination is already at max depth (level 3)
-      if (count >= 3 || isSelf || isDescendant || depth >= 2) {
+      if (count >= MAX_SUBFOLDERS || isSelf || isDescendant || depth >= MAX_FOLDER_DEPTH) {
         folderRow.classList.add('drag-forbidden');
         folderRow.classList.remove('drag-over');
         return; // no preventDefault → drop forbidden
@@ -781,7 +983,11 @@ function createFileElement(filename, folder, activeMeeting, depth = 0) {
   el.style.paddingLeft = `${28 + depth * 14}px`;
   el.dataset.filename  = filename;
   el.dataset.folder    = folder;
+  el.dataset.path      = folder ? `${folder}/${filename}` : filename;
   el.title             = displayName;
+
+  const recDot = document.createElement('span');
+  recDot.className = 'rec-dot hidden';
 
   const nameEl = document.createElement('span');
   nameEl.className   = 'sidebar-item-name';
@@ -800,6 +1006,7 @@ function createFileElement(filename, folder, activeMeeting, depth = 0) {
     showModal('item-actions');
   });
 
+  el.appendChild(recDot);
   el.appendChild(nameEl);
   el.appendChild(menuBtn);
 
@@ -908,7 +1115,7 @@ async function handleFolderDrop(srcName, destFullPath, destHandle) {
   if (srcFullPath === destFullPath || destFullPath.startsWith(srcFullPath + '/')) return;
   try {
     const srcParentHandle = currentDragData?.parentHandle || getRootHandle();
-    await moveFolderBetweenDirs(srcName, srcParentHandle, destHandle);
+    await moveFolderBetweenDirs(srcName, srcParentHandle, destHandle, srcParentPath, destFullPath);
     const newBase = `${destFullPath}/${srcName}`;
     for (const [id, m] of meetings.entries()) {
       if (m.folder === srcFullPath || m.folder.startsWith(srcFullPath + '/')) {
@@ -948,7 +1155,7 @@ async function handleDropToRoot(data) {
 
   } else if (data.kind === 'folder' && data.depth > 0) {
     try {
-      await moveFolderBetweenDirs(data.name, currentDragData?.parentHandle || getRootHandle(), getRootHandle());
+      await moveFolderBetweenDirs(data.name, currentDragData?.parentHandle || getRootHandle(), getRootHandle(), data.parentPath || '', '');
       for (const [id, m] of meetings.entries()) {
         if (m.folder === data.name || m.folder.startsWith(data.name + '/') ||
             m.folder === `${data.parentPath}/${data.name}` ||

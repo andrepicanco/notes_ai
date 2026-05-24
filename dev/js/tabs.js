@@ -6,6 +6,8 @@ let activeTabId = null;
 let onTabSwitch = null;
 let onTabClose  = null;
 let onNewTab    = null;
+let recordingTabId    = null;
+let recordingTabState = 'idle';
 
 export function initTabs({ onSwitch, onClose, onNew }) {
   onTabSwitch = onSwitch;
@@ -66,9 +68,10 @@ export function getActiveTabId() { return activeTabId; }
 export function getTabCount()    { return tabs.length; }
 export function getAllTabs()      { return tabs.map(t => ({ ...t })); }
 
-export function getMeetingData(tabId) {
-  const tab = tabs.find(t => t.id === tabId);
-  return tab ? tab.meetingData : null;
+export function setTabRecording(tabId, state) {
+  recordingTabId    = tabId  || null;
+  recordingTabState = state  || 'idle';
+  renderTabs();
 }
 
 export function updateMeetingData(tabId, partial) {
@@ -105,6 +108,11 @@ function renderTabs() {
     closeBtn.setAttribute('aria-label', `Fechar ${tab.name}`);
     closeBtn.addEventListener('click', e => { e.stopPropagation(); requestCloseTab(tab.id); });
 
+    if (tab.id === recordingTabId && recordingTabState !== 'idle') {
+      const recDot = document.createElement('span');
+      recDot.className = 'rec-dot' + (recordingTabState === 'paused' ? ' paused' : '');
+      el.appendChild(recDot);
+    }
     el.appendChild(nameEl);
     el.appendChild(closeBtn);
     el.addEventListener('click', () => {

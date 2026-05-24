@@ -4,6 +4,9 @@ const IDB_STORE = 'drafts';
 const CONFIG_FILENAME = 'notesai-config.json';
 const ROOT_HANDLE_KEY = 'notesai-root-handle';
 
+export const MAX_SUBFOLDERS  = 5;
+export const MAX_FOLDER_DEPTH = 5; // 0-indexed → suporta 3 níveis (raiz, 1º nível, 2º nível)
+
 let rootHandle = null;
 let idb = null;
 
@@ -192,10 +195,6 @@ export async function resolveUniqueFilename(path, dirHandle = null) {
   return `${base}_${Date.now()}${ext}`;
 }
 
-export async function moveFile(sourcePath, destPath) {
-  await renameFile(sourcePath, destPath);
-}
-
 // ── Directory listing (.md and .txt) ──────────────────────
 
 export async function listDirectory(dirHandle = null) {
@@ -234,11 +233,6 @@ export async function setFolderColor(folderName, color) {
   cfg.folderColors = cfg.folderColors || {};
   cfg.folderColors[folderName] = color;
   await saveConfig(cfg);
-}
-
-export async function getFolderColor(folderName) {
-  const cfg = await loadConfig();
-  return cfg.folderColors?.[folderName] || '#6b7280';
 }
 
 // ── Filename helpers ───────────────────────────────────────
@@ -296,38 +290,29 @@ export async function renameFolder(oldName, newName, parentHandle = null) {
   } catch { /* non-fatal */ }
 }
 
-export async function moveFolderBetweenDirs(folderName, srcParentHandle, destParentHandle) {
+export async function moveFolderBetweenDirs(folderName, srcParentHandle, destParentHandle, srcParentPath = null, destParentPath = null) {
   if (!srcParentHandle || !destParentHandle) throw new Error('No handles provided');
-  // Enforce max 3 subfolders at destination
+  // Enforce max subfolders at destination
   let subCount = 0;
   for await (const [, h] of destParentHandle.entries()) { if (h.kind === 'directory') subCount++; }
-  if (subCount >= 3) throw new Error('MAX_SUBFOLDERS');
+  if (subCount >= MAX_SUBFOLDERS) throw new Error('MAX_SUBFOLDERS');
   const srcDir  = await srcParentHandle.getDirectoryHandle(folderName);
   const destDir = await destParentHandle.getDirectoryHandle(folderName, { create: true });
   await copyDirContents(srcDir, destDir);
   await srcParentHandle.removeEntry(folderName, { recursive: true });
-}
-
-export async function moveFolderIntoFolder(srcName, destFolderName) {
-  if (!rootHandle) throw new Error('No root folder');
-  const destDir = await rootHandle.getDirectoryHandle(destFolderName);
-  // Enforce max 3 subfolders
-  let subCount = 0;
-  for await (const [, h] of destDir.entries()) { if (h.kind === 'directory') subCount++; }
-  if (subCount >= 3) throw new Error('MAX_SUBFOLDERS');
-  const targetDir = await destDir.getDirectoryHandle(srcName, { create: true });
-  const srcDir    = await rootHandle.getDirectoryHandle(srcName);
-  await copyDirContents(srcDir, targetDir);
-  await rootHandle.removeEntry(srcName, { recursive: true });
-  // Migrate folder color key
-  try {
-    const cfg = await loadConfig();
-    if (cfg.folderColors?.[srcName]) {
-      cfg.folderColors[`${destFolderName}/${srcName}`] = cfg.folderColors[srcName];
-      delete cfg.folderColors[srcName];
-      await saveConfig(cfg);
-    }
-  } catch { /* non-fatal */ }
+  // Migrate folder color key when caller provides path context
+  if (srcParentPath !== null && destParentPath !== null) {
+    try {
+      const cfg    = await loadConfig();
+      const oldKey = srcParentPath  ? `${srcParentPath}/${folderName}`  : folderName;
+      const newKey = destParentPath ? `${destParentPath}/${folderName}` : folderName;
+      if (oldKey !== newKey && cfg.folderColors?.[oldKey]) {
+        cfg.folderColors[newKey] = cfg.folderColors[oldKey];
+        delete cfg.folderColors[oldKey];
+        await saveConfig(cfg);
+      }
+    } catch { /* non-fatal */ }
+  }
 }
 
 // Default filename: YYYY-MM-DD_Reunião_HHmm.md

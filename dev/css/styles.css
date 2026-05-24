@@ -35,6 +35,7 @@ html, body { height: 100%; }
   --bg-tab-active:    #ffffff;
   --bg-tab:           #edf0f2;
   --bg-modal:         #ffffff;
+  --logo-text:        #014F86;
   --text:             #1a1a1a;
   --text-muted:       #6b7280;
   --text-placeholder: #9ca3af;
@@ -60,6 +61,7 @@ html, body { height: 100%; }
   --bg-tab-active:    #0d1117;   /* aba ativa = fundo principal (sem destaque)   */
   --bg-tab:           #111920;   /* abas inativas = sidebar tone                 */
   --bg-modal:         #131c27;   /* modal = surface                              */
+  --logo-text:        #e6edf3;   /* Texto da logo                                */
   --text:             #e6edf3;   /* GitHub dark text — branco levemente frio     */
   --text-muted:       #7d9baf;   /* muted com toque azul (vs GitHub #848d97)     */
   --text-placeholder: #4d6b7d;   /* placeholder discreto                         */
@@ -126,7 +128,7 @@ a:hover { text-decoration: underline; }
   font-weight: 700;
   font-size: 15px;
   letter-spacing: -0.02em;
-  color: var(--accent);
+  color: var(--logo-text);
   border-right: 1px solid var(--border);
 }
 
@@ -405,7 +407,7 @@ a:hover { text-decoration: underline; }
 .meeting-header-inner {
   width: 100%;
   max-width: 720px;
-  padding: 0 24px;
+  padding: 0 16px;
 }
 
 .meeting-title-row {
@@ -418,7 +420,7 @@ a:hover { text-decoration: underline; }
 #meeting-name-input {
   flex: 1;
   font-family: var(--font);
-  font-size: 20px;
+  font-size: 24px;
   font-weight: 600;
   color: var(--text);
   background: transparent;
@@ -543,9 +545,18 @@ a:hover { text-decoration: underline; }
 #transcription-indicator { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-muted); }
 
 .pulse-dot {
-  width: 8px; height: 8px; border-radius: 50%; background: var(--success);
+  width: 8px; height: 8px; border-radius: 50%; background: var(--danger);
   animation: pulse 1.5s ease-in-out infinite;
 }
+
+/* Reusable recording indicator dot (tab bar + sidebar) */
+.rec-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--danger);
+  flex-shrink: 0;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+.rec-dot.paused { animation: none; opacity: 0.45; }
 @keyframes pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50%       { opacity: .5; transform: scale(.85); }
@@ -574,6 +585,41 @@ a:hover { text-decoration: underline; }
   transition: all var(--transition);
 }
 .btn-help:hover { background: var(--bg-hover); color: var(--text); border-color: var(--accent); }
+
+/* ─── Transcription button ───────────────────────────────── */
+#btn-transcription {
+  background: transparent;
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background-color var(--transition), border-color var(--transition), color var(--transition), opacity var(--transition);
+  flex-shrink: 0;
+  letter-spacing: 0.02em;
+}
+#btn-transcription:hover:not(:disabled) { background: rgba(220,38,38,.08); }
+#btn-transcription.recording { border-color: var(--text-muted); color: var(--text-muted); }
+#btn-transcription.recording:hover:not(:disabled) { background: var(--bg-hover); }
+#btn-transcription.paused { border-color: var(--accent); color: var(--accent); }
+#btn-transcription.paused:hover:not(:disabled) { background: var(--bg-hover); }
+#btn-transcription:disabled { opacity: 0.4; cursor: not-allowed; }
+#transcription-indicator.paused .pulse-dot { animation: none; opacity: 0.5; }
+
+.tx-error-msg {
+  font-size: 12px;
+  color: var(--danger);
+  animation: tx-fade 4s ease forwards;
+}
+@keyframes tx-fade {
+  0%   { opacity: 0; }
+  10%  { opacity: 1; }
+  80%  { opacity: 1; }
+  100% { opacity: 0; }
+}
 
 /* ─── Buttons ────────────────────────────────────────────── */
 .btn {

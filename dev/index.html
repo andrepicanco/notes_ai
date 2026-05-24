@@ -167,7 +167,7 @@
     <header id="tabs-bar" role="tablist" aria-label="Reuniões abertas">
       <div id="tabs-logo" aria-label="NotesAI">NotesAI</div>
       <div id="tabs-list"></div>
-      <button id="btn-new-tab" class="btn-accent-icon" title="Nova reunião" aria-label="Nova reunião">+</button>
+      <button id="btn-new-tab" title="Nova reunião" aria-label="Nova reunião">+</button>
       <button id="btn-theme-toggle" aria-label="Alternar tema" title="Alternar tema claro/escuro">
         <span id="theme-icon">☀️</span>
       </button>
@@ -223,12 +223,13 @@
         <footer id="bottom-bar" class="hidden">
           <div id="status-area">
             <div id="transcription-indicator" class="hidden">
-              <span class="pulse-dot"></span>
-              <span>Transcrevendo...</span>
+              <span class="pulse-dot" id="tx-pulse"></span>
+              <span id="tx-status-text">Transcrevendo...</span>
             </div>
             <span id="autosave-indicator">Salvo</span>
           </div>
           <button id="btn-shortcuts-help" class="btn-help" title="Atalhos de teclado" aria-label="Atalhos de teclado">⌨</button>
+          <button id="btn-transcription" title="Iniciar transcrição de áudio" aria-label="Iniciar transcrição">🎙 REC</button>
           <button id="btn-finish-notes" class="btn btn-primary" disabled
                   title="Preencha o objetivo da reunião para finalizar">
             Finalizar notas
