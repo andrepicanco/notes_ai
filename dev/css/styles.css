@@ -156,7 +156,8 @@ a:hover { text-decoration: underline; }
 .tab:hover { background: var(--bg-hover); }
 .tab.active {
   background: var(--bg-tab-active);
-  color: var(--accent);
+  /* color: var(--accent-text); */
+  color: var(--text);
   font-weight: 500;
 }
 .tab.active::after {
@@ -487,7 +488,7 @@ a:hover { text-decoration: underline; }
   font-size: 15px;
   line-height: 1.4;
   color: var(--text);
-  caret-color: var(--accent);
+  caret-color: var(--text);
   cursor: text;
 }
 .ProseMirror p { margin-bottom: 0.5em; }

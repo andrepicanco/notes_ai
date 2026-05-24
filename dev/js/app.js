@@ -570,7 +570,7 @@ function setupSidebarResize() {
   });
   document.addEventListener('mousemove', e => {
     if (!dragging) return;
-    const min = window.innerWidth * 0.10;
+    const min = window.innerWidth * 0.15;
     const max = window.innerWidth * 0.40;
     const w   = Math.max(min, Math.min(max, startW + (e.clientX - startX)));
     sidebar.style.width    = w + 'px';
