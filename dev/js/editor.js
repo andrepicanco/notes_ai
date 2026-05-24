@@ -201,7 +201,7 @@ function collectTaskList(lines, start) {
 function collectBulletList(lines, start) {
   const items = []; let i = start;
   while (i < lines.length) {
-    const m = lines[i].match(/^(\s*)[-*] (.+)/);
+    const m = lines[i].match(/^(\s*)[-*] (.*)/);
     if (!m) break;
     items.push({ type: 'listItem', content: [{ type: 'paragraph', content: parseInline(m[2]) }] });
     i++;
@@ -211,7 +211,7 @@ function collectBulletList(lines, start) {
 function collectOrderedList(lines, start) {
   const items = []; let i = start;
   while (i < lines.length) {
-    const m = lines[i].match(/^(\s*)\d+\. (.+)/);
+    const m = lines[i].match(/^(\s*)\d+\. (.*)/);
     if (!m) break;
     items.push({ type: 'listItem', content: [{ type: 'paragraph', content: parseInline(m[2]) }] });
     i++;

@@ -11756,7 +11756,7 @@ ${t}
     const items = [];
     let i = start;
     while (i < lines.length) {
-      const m = lines[i].match(/^(\s*)[-*] (.+)/);
+      const m = lines[i].match(/^(\s*)[-*] (.*)/);
       if (!m) break;
       items.push({ type: "listItem", content: [{ type: "paragraph", content: parseInline(m[2]) }] });
       i++;
@@ -11767,7 +11767,7 @@ ${t}
     const items = [];
     let i = start;
     while (i < lines.length) {
-      const m = lines[i].match(/^(\s*)\d+\. (.+)/);
+      const m = lines[i].match(/^(\s*)\d+\. (.*)/);
       if (!m) break;
       items.push({ type: "listItem", content: [{ type: "paragraph", content: parseInline(m[2]) }] });
       i++;
