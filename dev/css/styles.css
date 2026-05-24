@@ -73,33 +73,13 @@ html, body { height: 100%; }
   --success:          #4ade80;   /* manter                                       */
   --overlay:          rgba(0,0,0,.6);
 }
-/* [data-theme="dark"] {
-  --bg:               #012A4A;
-  --bg-surface:       #01375f;
-  --bg-sidebar:       #013A63;
-  --bg-hover:         #01497C;
-  --bg-input:         #01497C;
-  --bg-tab-active:    #01375f;
-  --bg-tab:           #013055;
-  --bg-modal:         #013A63;
-  --text:             #e8e8e8;
-  --text-muted:       #94b8d0;
-  --text-placeholder: #6b99b8;
-  --accent:           #468FAF;
-  --accent-hover:     #61A5C2;
-  --accent-text:      #012A4A;
-  --border:           #01497C;
-  --border-input:     #2272a0;
-  --highlight-bg:     #78350f;
-  --danger:           #f87171;
-  --success:          #4ade80;
-  --overlay:          rgba(0,0,0,.55);
-} */
 
 /* Smooth theme transitions */
 body, #app, .modal, input, textarea, button, .tab, .sidebar-item,
 #editor-wrap, #meeting-header, #bottom-bar, #tabs-bar, #sidebar,
-#main-area, #empty-state {
+#main-area, #empty-state, .ProseMirror,
+.ProseMirror blockquote, .ProseMirror code, .ProseMirror pre,
+.ProseMirror mark, .ProseMirror hr {
   transition: background-color var(--transition), border-color var(--transition), color var(--transition);
 }
 
@@ -326,7 +306,7 @@ a:hover { text-decoration: underline; }
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 12px;
+  padding: 2px 12px;
   cursor: pointer;
   font-size: 13px;
   color: var(--text);

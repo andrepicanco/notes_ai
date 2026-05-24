@@ -512,7 +512,6 @@ function setupBottomBar() {
 
 function setupEditorWrapClick() {
   document.getElementById('editor-wrap').addEventListener('click', e => {
-    if (e.target.closest('.ProseMirror')) return;
     if (!getActiveTabId()) return;
     focusAtCoords(e.clientX, e.clientY);
   });
@@ -529,6 +528,7 @@ function setupSidebar() {
     showModal('new-folder');
     setTimeout(() => document.getElementById('input-folder-name').focus(), 100);
   });
+  setupRootDropZone(document.getElementById('directory-tree'));
 }
 
 async function handleCreateFolder() {
@@ -605,14 +605,24 @@ async function refreshDirectoryTree() {
       }
     }
 
-    // Root drop zone: empty area below items
-    setupRootDropZone(tree);
+    // Root drop zone is set up once in setupSidebar — no re-registration needed here
   } catch (err) { console.error('Directory refresh failed:', err); }
 }
 
 function setupRootDropZone(tree) {
   tree.addEventListener('dragover', e => {
     if (e.target.closest('.sidebar-item')) return;
+
+    // Only treat as root drop zone when cursor is below the last item
+    const lastChild = tree.lastElementChild;
+    if (lastChild) {
+      const rect = lastChild.getBoundingClientRect();
+      if (e.clientY <= rect.bottom) {
+        tree.classList.remove('drag-over-root');
+        return;
+      }
+    }
+
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     tree.classList.add('drag-over-root');
@@ -639,21 +649,17 @@ async function createFolderElement(name, color, handle, cfg, activeMeeting, dept
   toggle.className   = 'sidebar-toggle';
   toggle.textContent = '▾';
 
-  // Drag handle (color dot + icon) — only for root-level folders
+  // Drag handle (color dot + icon) — draggable at any depth
   const dragHandle = document.createElement('span');
   dragHandle.className = 'folder-drag-handle';
-  if (depth === 0) {
-    dragHandle.setAttribute('draggable', 'true');
-    dragHandle.title = 'Arrastar para mover pasta';
-    dragHandle.addEventListener('dragstart', e => {
-      e.stopPropagation();
-      e.dataTransfer.effectAllowed = 'move';
-      currentDragData = { kind: 'folder', name, depth, parentPath, parentHandle: ownParentHandle };
-      e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'folder', name, depth, parentPath }));
-    });
-  } else {
-    dragHandle.style.cursor = 'default';
-  }
+  dragHandle.setAttribute('draggable', 'true');
+  dragHandle.title = 'Arrastar para mover pasta';
+  dragHandle.addEventListener('dragstart', e => {
+    e.stopPropagation();
+    e.dataTransfer.effectAllowed = 'move';
+    currentDragData = { kind: 'folder', name, depth, parentPath, parentHandle: ownParentHandle };
+    e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'folder', name, depth, parentPath }));
+  });
 
   const dot = document.createElement('span');
   dot.className        = 'folder-color-dot';
@@ -692,6 +698,10 @@ async function createFolderElement(name, color, handle, cfg, activeMeeting, dept
   const entries = await listDirectory(handle).catch(() => []);
   const fullPath = parentPath ? `${parentPath}/${name}` : name;
 
+  // Restore saved collapsed state
+  const folderStateMap = JSON.parse(localStorage.getItem('notesai-folder-state') || '{}');
+  if (folderStateMap[fullPath]) folderRow.classList.add('collapsed');
+
   // Store subfolder count for drag validation
   const subfolderCount = entries.filter(e => e.kind === 'directory').length;
   folderRow.dataset.subfolderCount = subfolderCount;
@@ -710,16 +720,24 @@ async function createFolderElement(name, color, handle, cfg, activeMeeting, dept
   folderRow.addEventListener('click', e => {
     if (menuBtn.contains(e.target) || dragHandle.contains(e.target)) return;
     folderRow.classList.toggle('collapsed');
+    const state = JSON.parse(localStorage.getItem('notesai-folder-state') || '{}');
+    state[fullPath] = folderRow.classList.contains('collapsed');
+    localStorage.setItem('notesai-folder-state', JSON.stringify(state));
   });
 
-  // Drop zone — accepts files and root-level folders
+  // Drop zone — accepts files and folders at any depth
   folderRow.addEventListener('dragover', e => {
     e.stopPropagation();
     const isFolderDrag = currentDragData?.kind === 'folder';
     if (isFolderDrag) {
       const count = parseInt(folderRow.dataset.subfolderCount || '0');
-      const isSelf = currentDragData.name === name;
-      if (count >= 3 || isSelf) {
+      const srcFullPath = currentDragData.parentPath
+        ? `${currentDragData.parentPath}/${currentDragData.name}`
+        : currentDragData.name;
+      const isSelf       = srcFullPath === fullPath;
+      const isDescendant = fullPath.startsWith(srcFullPath + '/');
+      // depth >= 2 means destination is already at max depth (level 3)
+      if (count >= 3 || isSelf || isDescendant || depth >= 2) {
         folderRow.classList.add('drag-forbidden');
         folderRow.classList.remove('drag-over');
         return; // no preventDefault → drop forbidden
@@ -740,7 +758,8 @@ async function createFolderElement(name, color, handle, cfg, activeMeeting, dept
     let data;
     try { data = JSON.parse(e.dataTransfer.getData('text/plain')); } catch { return; }
     if (data.kind === 'folder') {
-      if (data.name !== name) handleFolderDrop(data.name, name);
+      const srcFullPath = data.parentPath ? `${data.parentPath}/${data.name}` : data.name;
+      if (srcFullPath !== fullPath) handleFolderDrop(data.name, fullPath, handle);
     } else {
       handleFileDrop(data, fullPath);
     }
@@ -883,15 +902,18 @@ async function executeDeleteItem() {
 
 // ── Drag: folder into folder ───────────────────────────────
 
-async function handleFolderDrop(srcName, destName) {
-  if (srcName === destName) return;
+async function handleFolderDrop(srcName, destFullPath, destHandle) {
+  const srcParentPath = currentDragData?.parentPath || '';
+  const srcFullPath   = srcParentPath ? `${srcParentPath}/${srcName}` : srcName;
+  if (srcFullPath === destFullPath || destFullPath.startsWith(srcFullPath + '/')) return;
   try {
-    await moveFolderIntoFolder(srcName, destName);
-    const newBase = `${destName}/${srcName}`;
+    const srcParentHandle = currentDragData?.parentHandle || getRootHandle();
+    await moveFolderBetweenDirs(srcName, srcParentHandle, destHandle);
+    const newBase = `${destFullPath}/${srcName}`;
     for (const [id, m] of meetings.entries()) {
-      if (m.folder === srcName || m.folder.startsWith(srcName + '/')) {
-        const newFolder   = m.folder === srcName ? newBase : m.folder.replace(srcName, newBase);
-        const newFilename = m.filename.replace(m.folder + '/', newFolder + '/');
+      if (m.folder === srcFullPath || m.folder.startsWith(srcFullPath + '/')) {
+        const newFolder   = m.folder === srcFullPath ? newBase : m.folder.replace(srcFullPath, newBase);
+        const newFilename = m.filename.replace(m.folder, newFolder);
         m.folder   = newFolder;
         m.filename = newFilename;
         if (id === getActiveTabId()) loadMeetingIntoHeader(id);

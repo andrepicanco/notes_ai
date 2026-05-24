@@ -298,6 +298,10 @@ export async function renameFolder(oldName, newName, parentHandle = null) {
 
 export async function moveFolderBetweenDirs(folderName, srcParentHandle, destParentHandle) {
   if (!srcParentHandle || !destParentHandle) throw new Error('No handles provided');
+  // Enforce max 3 subfolders at destination
+  let subCount = 0;
+  for await (const [, h] of destParentHandle.entries()) { if (h.kind === 'directory') subCount++; }
+  if (subCount >= 3) throw new Error('MAX_SUBFOLDERS');
   const srcDir  = await srcParentHandle.getDirectoryHandle(folderName);
   const destDir = await destParentHandle.getDirectoryHandle(folderName, { create: true });
   await copyDirContents(srcDir, destDir);

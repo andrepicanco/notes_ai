@@ -41,6 +41,21 @@ export function initEditor({ onChange } = {}) {
 function setupKeyboardShortcuts() {
   document.getElementById('editor').addEventListener('keydown', e => {
     if (!editor) return;
+
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.shiftKey) {
+        editor.commands.liftListItem('listItem') ||
+        editor.commands.liftListItem('taskItem');
+      } else {
+        const sunk = editor.commands.sinkListItem('listItem') ||
+                     editor.commands.sinkListItem('taskItem');
+        if (!sunk) editor.commands.insertContent('  ');
+      }
+      return;
+    }
+
     const mod = e.ctrlKey || e.metaKey;
     if (!mod) return;
     switch (e.key.toLowerCase()) {
